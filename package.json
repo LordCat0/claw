@@ -1,0 +1,27 @@
+{
+  "name": "claw",
+  "version": "1.0.0",
+  "description": "A programming language that compiles to scratch projects",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "node src/index"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LordCat0/claw.git"
+  },
+  "keywords": [
+    "scratch",
+    "sb3",
+    "claw"
+  ],
+  "author": "LordCat0",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/LordCat0/claw/issues"
+  },
+  "homepage": "https://github.com/LordCat0/claw#readme",
+  "dependencies": {
+    "jszip": "^3.10.1"
+  }
+}
