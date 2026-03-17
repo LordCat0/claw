@@ -600,7 +600,7 @@ class Compiler {
         this.compileFile(resolvedPath, new Scope());
 
         const projectJSON = this.toJSON();
-        const emptySVG = fs.readFileSync(path.join(__dirname, './project-assets/927d672925e7b99f7813735c484c6922.svg'));
+        const emptySVG = fs.readFileSync(path.join(__dirname, './assets/927d672925e7b99f7813735c484c6922.svg'));
         this._zip.file('project.json', JSON.stringify(projectJSON));
         this._zip.file('927d672925e7b99f7813735c484c6922.svg', emptySVG);
     }
