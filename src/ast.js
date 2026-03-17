@@ -58,7 +58,8 @@ class ASTBuilder {
                 case 'while': return this.parseWhile();
                 case 'repeat': return this.parseRepeat();
                 case 'for': return this.parseFor();
-                case 'function': return this.parseFunctionDeclaration();
+                case 'function': return this.parseFunctionDeclaration(false);
+                case 'function*': return this.parseFunctionDeclaration(true);
                 case 'return': return this.parseReturn();
                 case 'import': return this.parseImport();
                 case 'export': return this.parseExport();
@@ -140,7 +141,7 @@ class ASTBuilder {
         return { type: 'ForStatement', init, test, update, body };
     }
 
-    parseFunctionDeclaration () {
+    parseFunctionDeclaration (warp) {
         this.advance(); // skip 'function'
         const name = this.expect('IDENTIFIER').value;
         this.expect('LPAREN');
@@ -154,7 +155,7 @@ class ASTBuilder {
         }
         this.expect('RPAREN');
         const body = this.parseBlock();
-        return { type: 'FunctionDeclaration', name, params, body };
+        return { type: 'FunctionDeclaration', name, params, warp, body };
     }
 
     parseReturn () {

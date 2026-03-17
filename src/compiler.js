@@ -260,7 +260,7 @@ class Compiler {
                             children: [],
                             proccode: mutation.proccode,
                             tagName: 'mutation',
-                            warp: 'false'
+                            warp: mutation.warp
                         }
                     }, scope.lastBlock);
                     if (asValue) {
@@ -516,7 +516,7 @@ class Compiler {
                     children: [],
                     proccode: statement.name + args.map(_ => ' %s').join('') + `@${scope.id}`,
                     tagName: "mutation",
-                    warp: false
+                    warp: statement.warp
                 };
                 const procedurePrototype = this.insertBlock({
                     opcode: 'procedures_prototype',

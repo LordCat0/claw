@@ -22,7 +22,7 @@ const TOKEN_TYPES = {
 
 const KEYWORDS = [
     'if', 'else', 'while', 'for', 'repeat',
-    'function', 'return', 'var', 'true', 'false',
+    'function', 'function*', 'return', 'var', 'true', 'false',
     'import', 'export'
 ];
 
@@ -213,7 +213,7 @@ class Tokenizer {
 
     readIdentifier () {
         const start = this.pos;
-        while (this.pos < this.source.length && /[a-zA-Z0-9_]/.test(this.source[this.pos])) {
+        while (this.pos < this.source.length && /[a-zA-Z0-9_*]/.test(this.source[this.pos])) {
             this.pos++;
         }
         const value = this.source.slice(start, this.pos);
