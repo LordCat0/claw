@@ -11,6 +11,7 @@ class Scope {
   id: string;
   variables: Record<string, string>;
   variableIds: Record<string, string>;
+  constants: Record<string, boolean>;
   functions: Record<string, Mutation>;
   params: Record<string, boolean>;
   lastBlock: string | null;
@@ -21,26 +22,28 @@ class Scope {
     this.id = uid.shortUid();
     this.variables = {};
     this.variableIds = {};
+    this.constants = {};
     this.functions = {};
     this.params = {};
     this.lastBlock = null;
   }
 
-  defineVariable (name: string, id: string) {
-    if (name in this.variables) {
+  defineVariable (name: string, id: string, constant = false) {
+    if (this.constants[name]) {
       throw new Error(`Variable "${name}" is already defined in this scope.`);
     }
     this.variables[name] = `${name}@${this.id}`;
     this.variableIds[name] = id;
+    this.constants[name] = constant;
   }
 
   defineParam (name: string) {
     this.params[name] = true;
   }
 
-  importVariable (name: string, scopedName: string, id: string) {
+  importVariable (name: string, scopedName: string, id: string, constant = false) {
+    this.defineVariable(name, id, constant);
     this.variables[name] = scopedName;
-    this.variableIds[name] = id;
   }
 
   defineFunction (name: string, mutation: Mutation) {
@@ -48,14 +51,26 @@ class Scope {
   }
 
   resolveVariable (name: string): ResolvedVariable | null {
-    if (name in this.variables)
+    if (name in this.variables) {
       return {
         type: BindingType.Variable,
         name: this.variables[name],
-        id: this.variableIds[name]
+        id: this.variableIds[name],
+        constant: this.constants[name]
       };
-    if (name in this.params) return { type: BindingType.Parameter };
-    if (name in this.functions) return { type: BindingType.Function };
+    }
+    if (name in this.params) {
+      return {
+        type: BindingType.Parameter,
+        constant: true
+      };
+    }
+    if (name in this.functions) {
+      return {
+        type: BindingType.Function,
+        constant: true
+      };
+    }
     if (this.parent) return this.parent.resolveVariable(name);
     return null;
   }

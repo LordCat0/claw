@@ -76,6 +76,7 @@ class ASTBuilder {
 
     if (token.type === TokenType.KEYWORD) {
       switch (token.value) {
+        case Keyword.const:
         case Keyword.var: return this.parseVarDeclaration();
         case Keyword.if: return this.parseIf();
         case Keyword.while: return this.parseWhile();
@@ -105,7 +106,11 @@ class ASTBuilder {
   }
 
   parseVarDeclaration (): VarDeclaration {
-    this.advance(); // skip Keyword.var
+    const constant = this.current().value === Keyword.const;
+    if (constant) {
+      this.advance();
+    }
+    this.expect(TokenType.KEYWORD, Keyword.var);
     const name = (this.expect(TokenType.IDENTIFIER).value as string);
     let init = null;
     if (this.current().type === TokenType.EQUALS) {
@@ -113,7 +118,12 @@ class ASTBuilder {
       init = this.parseExpression();
     }
     this.expect(TokenType.SEMICOLON);
-    return { type: NodeType.VarDeclaration, name, init };
+    return {
+      type: NodeType.VarDeclaration,
+      name,
+      constant,
+      init
+    };
   }
 
   parseIf (): IfStatement {

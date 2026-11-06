@@ -354,7 +354,7 @@ class Compiler {
       }
       case NodeType.UpdateExpression: {
         const resolved = scope.resolveVariable(((expression as UpdateExpression).argument as Identifier).name);
-        if (!resolved || resolved.type !== BindingType.Variable) {
+        if (resolved.constant === true) {
           throw new Error(`"${((expression as UpdateExpression).argument as Identifier).name}" cannot be incremented/decremented.`);
         }
         scope.lastBlock = this.insertBlock({
@@ -375,7 +375,7 @@ class Compiler {
     switch (statement.type) {
       case NodeType.Assignment: {
         const resolved = scope.resolveVariable((statement.target as Identifier).name);
-        if (resolved.type !== BindingType.Variable) {
+        if (resolved.constant === true) {
           throw new Error(`"${(statement.target as Identifier).name}" cannot be set.`);
         }
         const value = this.parseExpression(statement.value, scope, true);
@@ -471,7 +471,7 @@ class Compiler {
       }
       case NodeType.VarDeclaration: {
         const newVarId = uid();
-        scope.defineVariable(statement.name, newVarId);
+        scope.defineVariable(statement.name, newVarId, statement.constant);
         // todo: should the variable's init value be the variables value in the JSON?
         this.root.variables[newVarId] = [statement.name + '@' + scope.id, String((statement.init as LiteralValue).value)];
         return scope.lastBlock;
@@ -515,7 +515,7 @@ class Compiler {
           const exp = fileExports[name];
           if (!exp) throw new Error(`"${name}" is not exported from "${statement.source}"`);
           if (exp.type === BindingType.Variable) {
-            scope.importVariable(name, exp.name, exp.id);
+            scope.importVariable(name, exp.name, exp.id, exp.constant);
           } else if (exp.type === BindingType.Function) {
             scope.defineFunction(name, exp.mutation);
           }
@@ -537,7 +537,8 @@ class Compiler {
               this._exports[this._currentFile][name] = {
                 type: BindingType.Variable,
                 name: resolvedVar.name,
-                id: resolvedVar.id
+                id: resolvedVar.id,
+                constant: resolvedVar.constant
               };
             } else {
               throw new Error(`"${name}" is not defined and cannot be exported.`);

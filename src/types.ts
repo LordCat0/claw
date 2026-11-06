@@ -29,6 +29,7 @@ export enum Keyword {
   function = 'function',
   'function*' = 'function*',
   return = 'return',
+  const = 'const',
   var = 'var',
   true = 'true',
   false = 'false',
@@ -97,6 +98,7 @@ interface ExpressionStatement {
 export interface VarDeclaration {
   type: NodeType.VarDeclaration;
   name: string;
+  constant: boolean;
   init: Expression | null;
 }
 
@@ -285,14 +287,17 @@ interface Variable {
   type: BindingType.Variable;
   name: string;
   id: string;
+  constant: boolean;
 }
 
 interface Parameter {
   type: BindingType.Parameter;
+  constant: true;
 }
 
 interface FunctionReference {
   type: BindingType.Function;
+  constant: true;
 }
 
 export type ResolvedVariable = Variable | Parameter | FunctionReference;
@@ -328,6 +333,7 @@ interface ExportedVariable {
   type: BindingType.Variable;
   name: string;
   id: string;
+  constant: boolean;
 }
 
 interface ExportedFunction {
