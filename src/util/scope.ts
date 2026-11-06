@@ -1,7 +1,19 @@
-const uid = require('./uid');
+import { BindingType } from '../types.ts';
+import type { Mutation, ResolvedVariable } from '../types.ts';
+
+import uid from './uid.ts';
 
 class Scope {
-    constructor (parent = null, isFunction = false) {
+    parent: Scope | null;
+    isFunction: boolean;
+    id: string;
+    variables: Record<string, string>;
+    variableIds: Record<string, string>;
+    functions: Record<string, Mutation>;
+    params: Record<string, boolean>;
+    lastBlock: string | null;
+
+    constructor (parent: Scope | null = null, isFunction = false) {
         this.parent = parent;
         this.isFunction = isFunction;
         this.id = uid.shortUid();
@@ -12,7 +24,7 @@ class Scope {
         this.lastBlock = null;
     }
 
-    defineVariable (name, id) {
+    defineVariable (name: string, id: string) {
         if (name in this.variables) {
             throw new Error(`Variable "${name}" is already defined in this scope.`);
         }
@@ -20,41 +32,41 @@ class Scope {
         this.variableIds[name] = id;
     }
 
-    defineParam (name) {
+    defineParam (name: string) {
         this.params[name] = true;
     }
 
-    importVariable (name, scopedName, id) {
+    importVariable (name: string, scopedName: string, id: string) {
         this.variables[name] = scopedName;
         this.variableIds[name] = id;
     }
 
-    defineFunction (name, mutation) {
+    defineFunction (name: string, mutation: Mutation) {
         this.functions[name] = mutation;
     }
 
-    resolveVariable (name) {
+    resolveVariable (name: string): ResolvedVariable | null {
         if (name in this.variables) 
             return {
-                type: 'variable',
+                type: BindingType.Variable,
                 name: this.variables[name],
                 id: this.variableIds[name]
             };
-        if (name in this.params) return { type: 'parameter' };
-        if (name in this.functions) return { type: 'function' };
+        if (name in this.params) return { type: BindingType.Parameter };
+        if (name in this.functions) return { type: BindingType.Function };
         if (this.parent) return this.parent.resolveVariable(name);
         return null;
     }
 
-    resolveFunction (name) {
+    resolveFunction (name: string): Mutation | null {
         if (name in this.functions) return this.functions[name];
         if (this.parent) return this.parent.resolveFunction(name);
         return null;
     }
 
-    createChild (newFunction) {
+    createChild (newFunction?: boolean) {
         return new Scope(this, newFunction || this.isFunction);
     }
 }
 
-module.exports = Scope;
+export default Scope;

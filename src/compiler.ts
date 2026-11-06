@@ -1,15 +1,36 @@
-const fs = require('fs');
-const path = require('path');
-const JSZip = require('jszip');
+import { NodeType, BindingType } from './types.ts';
+import type { Statement, Expression, BinaryExpression, UnaryExpression, Identifier, UpdateExpression, ScratchInput, Mutation, Sprite, BlockOptions, ZipOutputs, Monitor, FileExport } from './types.ts';
 
-const Tokenizer = require('./tokenizer');
-const ASTBuilder = require('./ast');
+interface LiteralValue {
+    value?: unknown;
+}
 
-const { newSprite, newBlock } = require('./util/project-util');
-const uid = require('./util/uid');
-const Scope = require('./util/scope');
+interface ProjectMeta {
+    agent: string;
+    semver: string;
+    vm: string;
+}
 
-const { name, version } = require('../package.json');
+interface RuntimeIds {
+    consoleList: string;
+    returnVar: string;
+}
+
+
+import fs from 'node:fs';
+import path from 'node:path';
+import JSZip from 'jszip';
+
+import Tokenizer from './tokenizer.ts';
+import ASTBuilder from './ast.ts';
+
+import { newSprite, newBlock } from './util/project-util.ts';
+import uid from './util/uid.ts';
+import Scope from './util/scope.ts';
+
+import metadata from '../package.json' with { type: 'json' };
+
+const { name, version } = metadata;
 
 // todo: make a better system for this
 const BUILT_IN_FUNCTIONS = [
@@ -19,6 +40,18 @@ const BUILT_IN_FUNCTIONS = [
 ];
 
 class Compiler {
+    targets: Sprite[];
+    monitors: Monitor[];
+    extensions: string[];
+    meta: ProjectMeta;
+    stage: Sprite;
+    root: Sprite;
+    private _zip: JSZip;
+    private _ids: RuntimeIds;
+    private _exports: Record<string, Record<string, FileExport>>;
+    private _compiledFiles: Set<string>;
+    private _currentFile: string | null;
+
     constructor () {
         this.targets = [];
         this.monitors = [];
@@ -70,7 +103,7 @@ class Compiler {
         this._currentFile = null;
     }
 
-    insertBlock (blockInfo, lastBlock) {
+    insertBlock (blockInfo: BlockOptions, lastBlock?: string) {
         const id = uid();
         if (lastBlock && this.root.blocks[lastBlock]) {
             this.root.blocks[lastBlock].next = id;
@@ -81,13 +114,13 @@ class Compiler {
         return id;
     }
 
-    parseSubstack (bodyStatements, parentScope, parentBlockId) {
+    async parseSubstack (bodyStatements: Statement[], parentScope: Scope, parentBlockId: string) {
         const childScope = parentScope.createChild();
         childScope.lastBlock = null;
         let firstBlock = null;
 
         for (const statement of bodyStatements) {
-            childScope.lastBlock = this.parseStatement(statement, childScope);
+            childScope.lastBlock = await this.parseStatement(statement, childScope) as string;
             if (!firstBlock) firstBlock = childScope.lastBlock;
         }
 
@@ -98,7 +131,7 @@ class Compiler {
         return firstBlock;
     }
 
-    parseBuiltInFunction (funcName, args, scope) {
+    parseBuiltInFunction (funcName: string, args: ScratchInput[], scope: Scope) {
         switch (funcName) {
             case 'wait': {
                 return this.insertBlock({
@@ -129,16 +162,16 @@ class Compiler {
         }
     }
 
-    parseIdentifier (identifier) {
+    parseIdentifier (identifier: Identifier) {
         return identifier.name;
     }
 
-    parseBinaryExpression (expr, scope) {
+    parseBinaryExpression (expr: BinaryExpression, scope: Scope): ScratchInput {
         const left = this.parseExpression(expr.left, scope, true);
         const right = this.parseExpression(expr.right, scope, true);
         switch (expr.operator) {
             case '+': {
-                if (left[1][0] === 10 || right[1][0] === 10) {
+                if ((left[1] as number[])[0] === 10 || (right[1] as number[])[0] === 10) {
                     return [2, this.insertBlock({
                         opcode: 'operator_join',
                         inputs: {
@@ -214,7 +247,7 @@ class Compiler {
         }
     }
 
-    parseUnaryExpression (expr, scope) {
+    parseUnaryExpression (expr: UnaryExpression, scope: Scope): ScratchInput {
         const value = this.parseExpression(expr.value, scope);
         if (expr.operator === '!') {
             return [2, this.insertBlock({
@@ -234,10 +267,10 @@ class Compiler {
         }
     }
 
-    parseExpression (expression, scope, asValue = false) {
+    parseExpression (expression: Expression, scope: Scope, asValue = false): ScratchInput {
         switch (expression.type) {
-            case 'CallExpression': {
-                const callee = this.parseIdentifier(expression.callee);
+            case NodeType.CallExpression: {
+                const callee = this.parseIdentifier(expression.callee as Identifier);
                 const args = expression.arguments.map(a => this.parseExpression(a, scope, true));
                 if (BUILT_IN_FUNCTIONS.includes(callee)) {
                     return this.parseBuiltInFunction(callee, args, scope);
@@ -247,7 +280,7 @@ class Compiler {
                     scope.lastBlock = this.insertBlock({
                         opcode: 'procedures_call',
                         inputs: Object.fromEntries(
-                            JSON.parse(mutation.argumentids).map((argId, i) => {
+                            (JSON.parse(mutation.argumentids) as string[]).map((argId, i) => {
                                 if (args[i]) {
                                     return [argId, args[i]];
                                 } else {
@@ -270,19 +303,19 @@ class Compiler {
                 }
                 throw new Error(`"${callee}" is not a function.`);
             }
-            case 'BinaryExpression': {
+            case NodeType.BinaryExpression: {
                 return this.parseBinaryExpression(expression, scope);
             }
-            case 'UnaryExpression': {
+            case NodeType.UnaryExpression: {
                 return this.parseUnaryExpression(expression, scope);
             }
-            case 'StringLiteral': {
+            case NodeType.StringLiteral: {
                 return [1, [10, String(expression.value)]];
             }
-            case 'NumberLiteral': {
+            case NodeType.NumberLiteral: {
                 return [1, [5, String(expression.value)]];
             }
-            case 'BooleanLiteral': {
+            case NodeType.BooleanLiteral: {
                 const block1 = this.insertBlock({
                     opcode: 'operator_not',
                     inputs: expression.value ? {} : {
@@ -293,28 +326,28 @@ class Compiler {
                 }, scope.lastBlock);
                 return [2, block1];
             }
-            case 'Identifier': {
+            case NodeType.Identifier: {
                 const resolved = scope.resolveVariable(expression.name);
                 if (!resolved) {
                     throw new Error(`"${expression.name}" is not defined.`);
                 }
-                if (resolved.type === 'parameter') {
+                if (resolved.type === BindingType.Parameter) {
                     return [2, this.insertBlock({
                         opcode: 'argument_reporter_string_number',
                         fields: {
                             VALUE: [expression.name, null]
                         }
                     })];
-                } else if (resolved.type === 'function') {
+                } else if (resolved.type === BindingType.Function) {
                     return [1, [10, '[function]']];
-                } else if (resolved.type === 'variable') {
+                } else if (resolved.type === BindingType.Variable) {
                     return [2, [12, resolved.name, resolved.id]];
                 }
             }
-            case 'UpdateExpression': {
-                const resolved = scope.resolveVariable(expression.argument.name);
-                if (!resolved || resolved.type !== 'variable') {
-                    throw new Error(`"${expression.argument.name}" cannot be incremented/decremented.`);
+            case NodeType.UpdateExpression: {
+                const resolved = scope.resolveVariable(((expression as UpdateExpression).argument as Identifier).name);
+                if (!resolved || resolved.type !== BindingType.Variable) {
+                    throw new Error(`"${((expression as UpdateExpression).argument as Identifier).name}" cannot be incremented/decremented.`);
                 }
                 scope.lastBlock = this.insertBlock({
                     opcode: 'data_changevariableby',
@@ -322,7 +355,7 @@ class Compiler {
                         VARIABLE: [resolved.name, resolved.id]
                     },
                     inputs: {
-                        VALUE: [1, [5, expression.operator === '++' ? '1' : '-1']]
+                        VALUE: [1, [5, (expression as UpdateExpression).operator === '++' ? '1' : '-1']]
                     }
                 }, scope.lastBlock);
                 return scope.lastBlock;
@@ -330,12 +363,12 @@ class Compiler {
         }
     }
 
-    parseStatement (statement, scope) {
+    async parseStatement (statement: Statement, scope: Scope): Promise<ScratchInput> {
         switch (statement.type) {
-            case 'Assignment': {
-                const resolved = scope.resolveVariable(statement.target.name);
-                if (resolved.type !== 'variable') {
-                    throw new Error(`"${statement.target.name}" cannot be set.`);
+            case NodeType.Assignment: {
+                const resolved = scope.resolveVariable((statement.target as Identifier).name);
+                if (resolved.type !== BindingType.Variable) {
+                    throw new Error(`"${(statement.target as Identifier).name}" cannot be set.`);
                 }
                 const value = this.parseExpression(statement.value, scope, true);
                 return this.insertBlock({
@@ -348,10 +381,10 @@ class Compiler {
                     }
                 }, scope.lastBlock);
             }
-            case 'ExpressionStatement': {
+            case NodeType.ExpressionStatement: {
                 return this.parseExpression(statement.expression, scope);
             }
-            case 'WhileStatement': {
+            case NodeType.WhileStatement: {
                 const test = this.parseExpression(statement.test, scope, true);
                 const whileId = this.insertBlock({
                     opcode: 'control_while',
@@ -360,13 +393,13 @@ class Compiler {
                         SUBSTACK: [2]
                     }
                 }, scope.lastBlock);
-                const firstBody = this.parseSubstack(statement.body.body, scope, whileId);
+                const firstBody = await this.parseSubstack(statement.body.body, scope, whileId);
                 if (firstBody) {
                     this.root.blocks[whileId].inputs.SUBSTACK = [2, firstBody];
                 }
                 return whileId;
             }
-            case 'IfStatement': {
+            case NodeType.IfStatement: {
                 const test = this.parseExpression(statement.test, scope, true);
                 const hasElse = statement.alternate !== null;
                 const ifId = this.insertBlock({
@@ -376,22 +409,22 @@ class Compiler {
                         SUBSTACK: [2]
                     }
                 }, scope.lastBlock);
-                const firstCons = this.parseSubstack(statement.consequent.body, scope, ifId);
+                const firstCons = await this.parseSubstack(statement.consequent.body, scope, ifId);
                 if (firstCons) {
                     this.root.blocks[ifId].inputs.SUBSTACK = [2, firstCons];
                 }
                 if (hasElse) {
-                    const altBody = statement.alternate.type === 'Block'
+                    const altBody = statement.alternate.type === NodeType.Block
                         ? statement.alternate.body
                         : [statement.alternate];
-                    const firstAlt = this.parseSubstack(altBody, scope, ifId);
+                    const firstAlt = await this.parseSubstack(altBody, scope, ifId);
                     if (firstAlt) {
                         this.root.blocks[ifId].inputs.SUBSTACK2 = [2, firstAlt];
                     }
                 }
                 return ifId;
             }
-            case 'RepeatStatement': {
+            case NodeType.RepeatStatement: {
                 const count = this.parseExpression(statement.count, scope, true);
                 const repeatId = this.insertBlock({
                     opcode: 'control_repeat',
@@ -400,15 +433,15 @@ class Compiler {
                         SUBSTACK: [2]
                     }
                 }, scope.lastBlock);
-                const firstBody = this.parseSubstack(statement.body.body, scope, repeatId);
+                const firstBody = await this.parseSubstack(statement.body.body, scope, repeatId);
                 if (firstBody) {
                     this.root.blocks[repeatId].inputs.SUBSTACK = [2, firstBody];
                 }
                 return repeatId;
             }
-            case 'ForStatement': {
+            case NodeType.ForStatement: {
                 // Compile the init statement of the for loop
-                scope.lastBlock = this.parseStatement(statement.init, scope);
+                scope.lastBlock = await this.parseStatement(statement.init, scope) as string;
 
                 const test = this.parseExpression(statement.test, scope, true);
                 const whileId = this.insertBlock({
@@ -421,21 +454,21 @@ class Compiler {
 
                 // This part is a little sketchy
                 // This adds the update to the end of substack in the while loop
-                const bodyWithUpdate = [...statement.body.body, { type: 'ExpressionStatement', expression: statement.update }];
-                const firstBody = this.parseSubstack(bodyWithUpdate, scope, whileId);
+                const bodyWithUpdate: Statement[] = [...statement.body.body, { type: NodeType.ExpressionStatement, expression: statement.update }];
+                const firstBody = await this.parseSubstack(bodyWithUpdate, scope, whileId);
                 if (firstBody) {
                     this.root.blocks[whileId].inputs.SUBSTACK = [2, firstBody];
                 }
                 return whileId;
             }
-            case 'VarDeclaration': {
+            case NodeType.VarDeclaration: {
                 const newVarId = uid();
                 scope.defineVariable(statement.name, newVarId);
                 // todo: should the variable's init value be the variables value in the JSON?
-                this.root.variables[newVarId] = [statement.name + '@' + scope.id, String(statement.init.value)];
+                this.root.variables[newVarId] = [statement.name + '@' + scope.id, String((statement.init as LiteralValue).value)];
                 return scope.lastBlock;
             }
-            case 'ReturnStatement': {
+            case NodeType.ReturnStatement: {
                 if (!scope.isFunction) {
                     throw new Error("Return statements can only be used inside of functions.");
                 }
@@ -462,39 +495,39 @@ class Compiler {
                 }, block1);
             }
 
-            case 'ImportStatement': {
+            case NodeType.ImportStatement: {
                 const importPath = path.resolve(path.dirname(this._currentFile), statement.source);
                 const resolvedPath = importPath.endsWith('.claw') ? importPath : importPath + '.claw';
                 if (!this._compiledFiles.has(resolvedPath)) {
-                    this.compileFile(resolvedPath, scope);
+                    this.compileFile(resolvedPath);
                 }
                 const fileExports = this._exports[resolvedPath];
                 if (!fileExports) throw new Error(`No exports found from "${statement.source}"`);
                 for (const name of statement.names) {
                     const exp = fileExports[name];
                     if (!exp) throw new Error(`"${name}" is not exported from "${statement.source}"`);
-                    if (exp.type === 'variable') {
+                    if (exp.type === BindingType.Variable) {
                         scope.importVariable(name, exp.name, exp.id);
-                    } else if (exp.type === 'function') {
+                    } else if (exp.type === BindingType.Function) {
                         scope.defineFunction(name, exp.mutation);
                     }
                 }
                 return scope.lastBlock;
             }
-            case 'ExportStatement': {
+            case NodeType.ExportStatement: {
                 if (!this._exports[this._currentFile]) this._exports[this._currentFile] = {};
                 for (const name of statement.names) {
                     const resolvedFunc = scope.resolveFunction(name);
                     if (resolvedFunc) {
                         this._exports[this._currentFile][name] = {
-                            type: 'function',
+                            type: BindingType.Function,
                             mutation: resolvedFunc
                         };
                     } else {
                         const resolvedVar = scope.resolveVariable(name);
-                        if (resolvedVar && resolvedVar.type === 'variable') {
+                        if (resolvedVar && resolvedVar.type === BindingType.Variable) {
                             this._exports[this._currentFile][name] = {
-                                type: 'variable',
+                                type: BindingType.Variable,
                                 name: resolvedVar.name,
                                 id: resolvedVar.id
                             };
@@ -505,11 +538,11 @@ class Compiler {
                 }
                 return scope.lastBlock;
             }
-            case 'FunctionDeclaration': {
+            case NodeType.FunctionDeclaration: {
                 const args = statement.params;
                 const argumentIds = args.map(_ => uid());
-                const argumentBlocks = [];
-                const mutation = {
+                const argumentBlocks: string[] = [];
+                const mutation: Mutation = {
                     argumentdefaults: JSON.stringify(args.map(_ => '""')),
                     argumentids: JSON.stringify(argumentIds),
                     argumentnames: JSON.stringify(args),
@@ -550,14 +583,14 @@ class Compiler {
                 const funcScope = scope.createChild(true);
                 funcScope.lastBlock = definition;
                 args.forEach(p => funcScope.defineParam(p));
-                this.parseASTBody(statement.body.body, funcScope);
+                await this.parseASTBody(statement.body.body, funcScope);
                 scope.defineFunction(statement.name, mutation);
                 return scope.lastBlock;
             }
         }
     }
 
-    parseASTBody (body, scope) {
+    async parseASTBody (body: Statement[], scope: Scope) {
         if (!scope.lastBlock) {
             scope.lastBlock = this.insertBlock({
                 opcode: "event_whenflagclicked",
@@ -566,11 +599,11 @@ class Compiler {
         }
 
         for (const statement of body) {
-            scope.lastBlock = this.parseStatement(statement, scope);
+            scope.lastBlock = await this.parseStatement(statement, scope) as string;
         }
     }
 
-    compileFile (filePath) {
+    async compileFile (filePath: string) {
         const tokenizer = new Tokenizer();
         const astBuilder = new ASTBuilder();
 
@@ -589,18 +622,18 @@ class Compiler {
         const ast = astBuilder.build(tokens);
 
         const fileScope = new Scope();
-        this.parseASTBody(ast.body, fileScope);
+        await this.parseASTBody(ast.body, fileScope);
 
         this._currentFile = previousFile;
         return fileScope;
     }
 
-    compile (filePath) {
+    async compile (filePath: string) {
         const resolvedPath = path.resolve(filePath);
-        this.compileFile(resolvedPath, new Scope());
+        await this.compileFile(resolvedPath);
 
         const projectJSON = this.toJSON();
-        const emptySVG = fs.readFileSync(path.join(__dirname, './assets/927d672925e7b99f7813735c484c6922.svg'));
+        const emptySVG = fs.readFileSync(new URL('./assets/927d672925e7b99f7813735c484c6922.svg', import.meta.url));
         this._zip.file('project.json', JSON.stringify(projectJSON));
         this._zip.file('927d672925e7b99f7813735c484c6922.svg', emptySVG);
     }
@@ -614,9 +647,9 @@ class Compiler {
         };
     }
 
-    generateZip (type) {
+    generateZip<T extends JSZip.OutputType> (type: T): Promise<ZipOutputs[T]> {
         return this._zip.generateAsync({ type });
     }
 }
 
-module.exports = Compiler;
+export default Compiler;

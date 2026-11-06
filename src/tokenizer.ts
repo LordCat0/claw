@@ -1,32 +1,19 @@
-// todo: move these to a separate enum file
+import { TokenType, Keyword } from './types.ts';
+import type { Token } from './types.ts';
 
-const TOKEN_TYPES = {
-    NUMBER:     'NUMBER',
-    STRING:     'STRING',
-    IDENTIFIER: 'IDENTIFIER',
-    KEYWORD:    'KEYWORD',
-    LPAREN:     'LPAREN',
-    RPAREN:     'RPAREN',
-    LBRACE:     'LBRACE',
-    RBRACE:     'RBRACE',
-    LBRACKET:   'LBRACKET',
-    RBRACKET:   'RBRACKET',
-    SEMICOLON:  'SEMICOLON',
-    COMMA:      'COMMA',
-    OPERATOR:   'OPERATOR',
-    EQUALS:     'EQUALS',
-    COMPARISON: 'COMPARISON',
-    NOT:        'NOT',
-    EOF:        'EOF'
-};
-
-const KEYWORDS = [
-    'if', 'else', 'while', 'for', 'repeat',
-    'function', 'function*', 'return', 'var', 'true', 'false',
-    'import', 'export'
+const KEYWORDS: readonly Keyword[] = [
+    Keyword.If, Keyword.Else, Keyword.While, Keyword.For, Keyword.Repeat,
+    Keyword.Function, Keyword.WarpFunction, Keyword.Return, Keyword.Var,
+    Keyword.True, Keyword.False, Keyword.Import, Keyword.Export
 ];
 
 class Tokenizer {
+    tokens: Token[];
+    pos: number;
+    line: number;
+    col: number;
+    source: string;
+
     constructor () {
         this.tokens = [];
         this.pos = 0;
@@ -35,7 +22,7 @@ class Tokenizer {
         this.source = '';
     }
 
-    tokenize (script) {
+    tokenize (script: string) {
         this.tokens = [];
         this.pos = 0;
         this.line = 1;
@@ -90,35 +77,35 @@ class Tokenizer {
             // Two character operators and comparisons
             const next = this.source[this.pos + 1];
             if ((ch === '=' || ch === '!' || ch === '<' || ch === '>') && next === '=') {
-                this.push(TOKEN_TYPES.COMPARISON, ch + next);
+                this.push(TokenType.COMPARISON, ch + next);
                 this.pos += 2;
                 this.col += 2;
                 continue;
             }
 
             if (ch === '+' && next === '+') {
-                this.push(TOKEN_TYPES.OPERATOR, '++');
+                this.push(TokenType.OPERATOR, '++');
                 this.pos += 2;
                 this.col += 2;
                 continue;
             }
 
             if (ch === '-' && next === '-') {
-                this.push(TOKEN_TYPES.OPERATOR, '--');
+                this.push(TokenType.OPERATOR, '--');
                 this.pos += 2;
                 this.col += 2;
                 continue;
             }
 
             if (ch === '&' && next === '&') {
-                this.push(TOKEN_TYPES.OPERATOR, '&&');
+                this.push(TokenType.OPERATOR, '&&');
                 this.pos += 2;
                 this.col += 2;
                 continue;
             }
 
             if (ch === '|' && next === '|') {
-                this.push(TOKEN_TYPES.OPERATOR, '||');
+                this.push(TokenType.OPERATOR, '||');
                 this.pos += 2;
                 this.col += 2;
                 continue;
@@ -126,20 +113,20 @@ class Tokenizer {
 
             // Single character tokens
             switch (ch) {
-                case '(': this.push(TOKEN_TYPES.LPAREN, ch); break;
-                case ')': this.push(TOKEN_TYPES.RPAREN, ch); break;
-                case '{': this.push(TOKEN_TYPES.LBRACE, ch); break;
-                case '}': this.push(TOKEN_TYPES.RBRACE, ch); break;
-                case '[': this.push(TOKEN_TYPES.LBRACKET, ch); break;
-                case ']': this.push(TOKEN_TYPES.RBRACKET, ch); break;
-                case ';': this.push(TOKEN_TYPES.SEMICOLON, ch); break;
-                case ',': this.push(TOKEN_TYPES.COMMA, ch); break;
-                case '=': this.push(TOKEN_TYPES.EQUALS, ch); break;
-                case '!': this.push(TOKEN_TYPES.NOT, ch); break;
+                case '(': this.push(TokenType.LPAREN, ch); break;
+                case ')': this.push(TokenType.RPAREN, ch); break;
+                case '{': this.push(TokenType.LBRACE, ch); break;
+                case '}': this.push(TokenType.RBRACE, ch); break;
+                case '[': this.push(TokenType.LBRACKET, ch); break;
+                case ']': this.push(TokenType.RBRACKET, ch); break;
+                case ';': this.push(TokenType.SEMICOLON, ch); break;
+                case ',': this.push(TokenType.COMMA, ch); break;
+                case '=': this.push(TokenType.EQUALS, ch); break;
+                case '!': this.push(TokenType.NOT, ch); break;
                 case '<': case '>':
-                    this.push(TOKEN_TYPES.COMPARISON, ch); break;
+                    this.push(TokenType.COMPARISON, ch); break;
                 case '+': case '-': case '*': case '/': case '%':
-                    this.push(TOKEN_TYPES.OPERATOR, ch); break;
+                    this.push(TokenType.OPERATOR, ch); break;
                 default:
                     throw new Error(`Unexpected character '${ch}' at line ${this.line}, col ${this.col}`);
             }
@@ -147,11 +134,11 @@ class Tokenizer {
             this.col++;
         }
 
-        this.push(TOKEN_TYPES.EOF, null);
+        this.push(TokenType.EOF, null);
         return this.tokens;
     }
 
-    push (type, value) {
+    push (type: TokenType, value: Token['value']) {
         this.tokens.push({ type, value, line: this.line, col: this.col });
     }
 
@@ -170,11 +157,11 @@ class Tokenizer {
             }
         }
         const value = this.source.slice(start, this.pos);
-        this.push(TOKEN_TYPES.NUMBER, Number(value));
+        this.push(TokenType.NUMBER, Number(value));
         this.col += value.length;
     }
 
-    readString (quote) {
+    readString (quote: string) {
         this.pos++; // skip opening quote
         this.col++;
         let value = '';
@@ -198,7 +185,7 @@ class Tokenizer {
             if (ch === quote) {
                 this.pos++; // skip closing quote
                 this.col++;
-                this.push(TOKEN_TYPES.STRING, value);
+                this.push(TokenType.STRING, value);
                 return;
             }
             if (ch === '\n') {
@@ -217,7 +204,7 @@ class Tokenizer {
             this.pos++;
         }
         const value = this.source.slice(start, this.pos);
-        const type = KEYWORDS.includes(value) ? TOKEN_TYPES.KEYWORD : TOKEN_TYPES.IDENTIFIER;
+        const type = KEYWORDS.includes(value as Keyword) ? TokenType.KEYWORD : TokenType.IDENTIFIER;
         this.push(type, value);
         this.col += value.length;
     }
@@ -249,4 +236,4 @@ class Tokenizer {
     }
 }
 
-module.exports = Tokenizer;
+export default Tokenizer;

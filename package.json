@@ -2,9 +2,14 @@
   "name": "claw",
   "version": "1.0.0",
   "description": "A programming language that compiles to scratch projects",
-  "main": "src/index.js",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "type": "module",
   "scripts": {
-    "test": "node src/index"
+    "build": "tsc && node --input-type=module -e \"import fs from 'node:fs'; fs.cpSync('src/assets', 'dist/src/assets', { recursive: true })\"",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/src/index.js",
+    "test": "npm run build && node dist/src/index.js"
   },
   "repository": {
     "type": "git",
@@ -23,5 +28,9 @@
   "homepage": "https://github.com/LordCat0/claw#readme",
   "dependencies": {
     "jszip": "^3.10.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
   }
 }

@@ -1,4 +1,6 @@
-const newSprite = (opts) => ({
+import type { ScratchBlock, Sprite, BlockOptions, SpriteOptions } from '../types.ts';
+
+export const newSprite = (opts: SpriteOptions): Sprite => ({
     isStage: opts.isStage ?? false,
     name: opts.name, // Required
     variables: opts.variables ?? {},
@@ -25,7 +27,7 @@ const newSprite = (opts) => ({
     textToSpeechLanguage: opts.textToSpeechLanguage ?? null
 });
 
-const newBlock = (opts) => ({
+export const newBlock = (opts: BlockOptions): ScratchBlock => ({
     opcode: opts.opcode, // Required
     next: opts.next ?? null,
     parent: opts.parent ?? null,
@@ -33,12 +35,8 @@ const newBlock = (opts) => ({
     fields: opts.fields ?? {},
     shadow: opts.shadow ?? false,
     topLevel: opts.topLevel ?? false,
-    ...({mutation: opts.mutation} ?? {}),
+    mutation: opts.mutation,
     x: opts.x ?? 0,
     y: opts.y ?? 0
 });
 
-module.exports = {
-    newSprite,
-    newBlock
-};

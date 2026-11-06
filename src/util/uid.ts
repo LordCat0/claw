@@ -40,4 +40,4 @@ const shortUid = function () {
 
 uid.shortUid = shortUid;
 
-module.exports = uid;
+export default uid;
