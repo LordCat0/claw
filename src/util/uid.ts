@@ -9,7 +9,7 @@
  * @private
  */
 const soup_ = '!#%()*+,-./:;=?@[]^_`{|}~' +
-    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 
 const shortSoup_ = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
@@ -19,23 +19,23 @@ const shortSoup_ = 'abcdefghijklmnopqrstuvwxyz0123456789';
  * @return {string} A globally unique ID string.
  */
 const uid = function () {
-    const length = 20;
-    const soupLength = soup_.length;
-    const id = [];
-    for (let i = 0; i < length; i++) {
-        id[i] = soup_.charAt(Math.random() * soupLength);
-    }
-    return id.join('');
+  const length = 20;
+  const soupLength = soup_.length;
+  const id = [];
+  for (let i = 0; i < length; i++) {
+    id[i] = soup_.charAt(Math.random() * soupLength);
+  }
+  return id.join('');
 };
 
 const shortUid = function () {
-    const length = 6;
-    const soupLength = shortSoup_.length;
-    const id = [];
-    for (let i = 0; i < length; i++) {
-        id[i] = shortSoup_.charAt(Math.random() * soupLength);
-    }
-    return id.join('');
+  const length = 6;
+  const soupLength = shortSoup_.length;
+  const id = [];
+  for (let i = 0; i < length; i++) {
+    id[i] = shortSoup_.charAt(Math.random() * soupLength);
+  }
+  return id.join('');
 };
 
 uid.shortUid = shortUid;
