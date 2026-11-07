@@ -36,7 +36,7 @@ export const newBlock = (opts: BlockOptions): ScratchBlock => ({
   opcode: opts.opcode,
   next: opts.next ?? null,
   parent: opts.parent ?? null,
-  inputs: opts.inputs ?? {},
+  inputs: { ...opts.inputs },
   fields: opts.fields ?? {},
   shadow: opts.shadow ?? false,
   topLevel: opts.topLevel ?? false,

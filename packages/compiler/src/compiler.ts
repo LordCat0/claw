@@ -36,6 +36,9 @@ import {
   type CallArguments,
   type FunctionDeclaration,
   type FunctionExpression,
+  type WhileStatement,
+  type RepeatStatement,
+  type ForStatement,
   type VariableBinding
 } from './types.ts';
 
@@ -274,6 +277,7 @@ class Compiler {
     }
 
     if (node.type === NodeType.VarDeclaration || node.type === NodeType.ReturnStatement ||
+        node.type === NodeType.BreakStatement || node.type === NodeType.ContinueStatement ||
         node.type === NodeType.CallExpression || node.type === NodeType.UpdateExpression) {
       return true;
     }
@@ -783,20 +787,111 @@ class Compiler {
     }
   }
 
-  async parseLoop (
-    testExpression: Expression,
-    body: Statement[],
-    scope: Scope,
-    update?: Expression
-  ) {
-    const previous = scope.lastBlock;
-    let test = await this.parseExpression(testExpression, scope, true);
-    let condition: VariableBinding;
+  hasLoopControl (body: Statement[]): boolean {
+    return body.some(statement => {
+      if (statement.type === NodeType.BreakStatement ||
+          statement.type === NodeType.ContinueStatement) {
+        return true
+      }
 
-    if (scope.lastBlock !== previous) {
-      condition = this.temporary(scope);
-      this.write(condition, this.boolean(test), scope);
-      test = this.read(condition);
+      if (statement.type === NodeType.IfStatement) {
+        let alternate: Statement[] = []
+
+        if (statement.alternate) {
+          alternate = statement.alternate.type === NodeType.Block
+            ? statement.alternate.body
+            : [statement.alternate]
+        }
+
+        return this.hasLoopControl(statement.consequent.body) || this.hasLoopControl(alternate)
+      }
+
+      return false
+    })
+  }
+
+  async parseLoop (
+    statement: WhileStatement | RepeatStatement | ForStatement,
+    scope: Scope
+  ) {
+    const body = statement.body.body
+    const hasControl = this.hasLoopControl(body)
+
+    if (statement.type === NodeType.RepeatStatement && !hasControl) {
+      const count = await this.parseExpression(statement.count, scope, true)
+      const loop = this.append(scope, {
+        opcode: 'control_repeat',
+        inputs: {
+          TIMES: count,
+          SUBSTACK: [2]
+        }
+      })
+      const firstBody = await this.parseSubstack(body, scope, loop)
+
+      if (firstBody) {
+        this.root.blocks[loop].inputs.SUBSTACK = [2, firstBody]
+      }
+
+      return loop
+    }
+
+    const state = hasControl ? this.temporary(scope) : null
+    const bodyScope = scope.createChild()
+    bodyScope.loopState = state
+    let count: VariableBinding
+    let testExpression: Expression
+    let test: ScratchInput
+    let condition: VariableBinding
+
+    if (state) {
+      // 0 runs the body, 1 skips to the next iteration, 2 exits the loop
+      this.write(state, [1, [4, 0]], scope)
+    }
+
+    const previous = scope.lastBlock;
+
+    if (statement.type === NodeType.RepeatStatement) {
+      const value = await this.parseExpression(statement.count, scope, true)
+      count = this.temporary(scope)
+      this.write(count, [2, this.insertBlock({
+        opcode: 'operator_round',
+        inputs: { NUM: value }
+      })], scope)
+      test = [2, this.insertBlock({
+        opcode: 'operator_gt',
+        inputs: {
+          OPERAND1: this.read(count),
+          OPERAND2: [1, [4, 0]]
+        }
+      })]
+    } else {
+      testExpression = statement.test
+      test = await this.parseExpression(testExpression, scope, true)
+
+      if (scope.lastBlock !== previous) {
+        condition = this.temporary(scope)
+        this.write(condition, this.boolean(test), scope)
+        test = this.read(condition)
+      }
+    }
+
+    let running: ScratchInput
+
+    if (state) {
+      running = [2, this.insertBlock({
+        opcode: 'operator_lt',
+        inputs: {
+          OPERAND1: this.read(state),
+          OPERAND2: [1, [4, 2]]
+        }
+      })]
+      test = [2, this.insertBlock({
+        opcode: 'operator_and',
+        inputs: {
+          OPERAND1: running,
+          OPERAND2: test
+        }
+      })]
     }
 
     const loop = this.append(scope, {
@@ -805,7 +900,11 @@ class Compiler {
         CONDITION: test
       }
     });
-    const bodyScope = scope.createChild();
+
+    if (state) {
+      this.write(state, [1, [4, 0]], bodyScope)
+    }
+
     await this.parseASTBody(body, bodyScope);
 
     const lastBlock = bodyScope.lastBlock && this.root.blocks[bodyScope.lastBlock];
@@ -813,15 +912,33 @@ class Compiler {
     if (!lastBlock || lastBlock.opcode !== 'control_stop' || lastBlock.mutation?.hasnext !== false) {
       // Use loop bindings for updates and conditions
       const tailScope = scope.createChild();
-      tailScope.lastBlock = bodyScope.lastBlock;
+      tailScope.lastBlock = state ? null : bodyScope.lastBlock
 
-      if (update) {
-        await this.parseExpression(update, tailScope);
+      if (statement.type === NodeType.ForStatement) {
+        await this.parseExpression(statement.update, tailScope)
+      }
+
+      if (count) {
+        this.write(count, [2, this.insertBlock({
+          opcode: 'operator_subtract',
+          inputs: {
+            NUM1: this.read(count),
+            NUM2: [1, [4, 1]]
+          }
+        })], tailScope)
       }
 
       if (condition) {
-        const nextTest = await this.parseExpression(testExpression, tailScope, true);
-        this.write(condition, this.boolean(nextTest), tailScope);
+        const nextTest = await this.parseExpression(testExpression, tailScope, true)
+        this.write(condition, this.boolean(nextTest), tailScope)
+      }
+
+      if (state && tailScope.firstBlock) {
+        const guard = this.append(bodyScope, {
+          opcode: 'control_if',
+          inputs: { CONDITION: running }
+        })
+        this.attachSubstack(guard, 'SUBSTACK', tailScope)
       }
 
       bodyScope.firstBlock = bodyScope.firstBlock || tailScope.firstBlock;
@@ -851,8 +968,20 @@ class Compiler {
 
         return scope.lastBlock;
       }
-      case NodeType.WhileStatement: {
-        return this.parseLoop(statement.test, statement.body.body, scope);
+      case NodeType.BreakStatement:
+      case NodeType.ContinueStatement: {
+        const keyword = statement.type === NodeType.BreakStatement ? 'break' : 'continue'
+
+        if (!scope.loopState) {
+          throw new Error(`"${keyword}" can only be used inside a loop.`)
+        }
+
+        const value = statement.type === NodeType.BreakStatement ? 2 : 1
+        return this.write(scope.loopState, [1, [4, value]], scope)
+      }
+      case NodeType.WhileStatement:
+      case NodeType.RepeatStatement: {
+        return this.parseLoop(statement, scope)
       }
       case NodeType.IfStatement: {
         const test = await this.parseExpression(statement.test, scope, true);
@@ -879,28 +1008,11 @@ class Compiler {
         }
         return ifId;
       }
-      case NodeType.RepeatStatement: {
-        const count = await this.parseExpression(statement.count, scope, true);
-        const repeatId = this.append(scope, {
-          opcode: 'control_repeat',
-          inputs: {
-            TIMES: count,
-            SUBSTACK: [2]
-          }
-        });
-        const firstBody = await this.parseSubstack(statement.body.body, scope, repeatId);
-        if (firstBody) {
-          this.root.blocks[repeatId].inputs.SUBSTACK = [2, firstBody];
-        }
-        return repeatId;
-      }
       case NodeType.ForStatement: {
         const forScope = scope.createChild();
         forScope.lastBlock = scope.lastBlock;
         await this.parseStatement(statement.init, forScope);
-        const loop = await this.parseLoop(
-          statement.test, statement.body.body, forScope, statement.update
-        );
+        const loop = await this.parseLoop(statement, forScope)
         scope.firstBlock = scope.firstBlock || forScope.firstBlock;
         scope.lastBlock = loop;
         return loop;
@@ -1119,14 +1231,37 @@ class Compiler {
   }
 
   async parseASTBody (body: Statement[], scope: Scope) {
-    for (const statement of body) {
+    for (let i = 0; i < body.length; i++) {
+      const statement = body[i]
       const values = scope.temporaries.values;
       const next = scope.temporaries.next;
       await this.parseStatement(statement, scope);
       scope.temporaries.next = scope.temporaries.values === values ? next : 0;
 
-      if (statement.type === NodeType.ReturnStatement) {
+      if (statement.type === NodeType.ReturnStatement ||
+          statement.type === NodeType.BreakStatement ||
+          statement.type === NodeType.ContinueStatement) {
         break;
+      }
+
+      if (scope.loopState && i + 1 < body.length && this.hasLoopControl([statement])) {
+        const guard = this.append(scope, {
+          opcode: 'control_if',
+          inputs: {
+            CONDITION: [2, this.insertBlock({
+              opcode: 'operator_equals',
+              inputs: {
+                OPERAND1: this.read(scope.loopState),
+                OPERAND2: [1, [4, 0]]
+              }
+            })]
+          }
+        })
+        const continuation = scope.createChild()
+        continuation.bindings = scope.bindings
+        await this.parseASTBody(body.slice(i + 1), continuation)
+        this.attachSubstack(guard, 'SUBSTACK', continuation)
+        break
       }
     }
   }

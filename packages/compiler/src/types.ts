@@ -30,6 +30,8 @@ export enum Keyword {
   while = 'while',
   for = 'for',
   repeat = 'repeat',
+  break = 'break',
+  continue = 'continue',
   function = 'function',
   'function*' = 'function*',
   return = 'return',
@@ -60,6 +62,8 @@ export const enum NodeType {
   WhileStatement = 'WhileStatement',
   RepeatStatement = 'RepeatStatement',
   ForStatement = 'ForStatement',
+  BreakStatement = 'BreakStatement',
+  ContinueStatement = 'ContinueStatement',
   FunctionDeclaration = 'FunctionDeclaration',
   FunctionExpression = 'FunctionExpression',
   ReturnStatement = 'ReturnStatement',
@@ -84,6 +88,8 @@ export type Statement =
   | WhileStatement
   | RepeatStatement
   | ForStatement
+  | BreakStatement
+  | ContinueStatement
   | FunctionDeclaration
   | ReturnStatement
   | ImportStatement
@@ -154,6 +160,14 @@ export interface ForStatement {
   test: Expression;
   update: Expression;
   body: Block;
+}
+
+export interface BreakStatement {
+  type: NodeType.BreakStatement
+}
+
+export interface ContinueStatement {
+  type: NodeType.ContinueStatement
 }
 
 export interface FunctionDeclaration {
