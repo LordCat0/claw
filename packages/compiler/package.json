@@ -8,8 +8,7 @@
   "scripts": {
     "build": "tsc && node --input-type=module -e \"import fs from 'node:fs'; fs.cpSync('src/assets', 'dist/src/assets', { recursive: true })\"",
     "typecheck": "tsc --noEmit",
-    "start": "node dist/src/index.js",
-    "test": "npm run build && node dist/src/index.js"
+    "start": "node dist/src/index.js"
   },
   "repository": {
     "type": "git",

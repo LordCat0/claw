@@ -1,83 +1,101 @@
 import uid from './uid.ts';
-import {
-  BindingType,
-  type Mutation,
-  type ResolvedVariable
+import type {
+  Binding,
+  Bindings,
+  VariableBinding
 } from '../types.ts';
 
 class Scope {
   parent: Scope | null;
   isFunction: boolean;
   id: string;
-  variables: Record<string, string>;
-  variableIds: Record<string, string>;
-  constants: Record<string, boolean>;
-  functions: Record<string, Mutation>;
-  params: Record<string, boolean>;
+  bindings: Bindings;
   lastBlock: string | null;
 
   constructor (parent: Scope | null = null, isFunction = false) {
     this.parent = parent;
     this.isFunction = isFunction;
     this.id = uid.shortUid();
-    this.variables = {};
-    this.variableIds = {};
-    this.constants = {};
-    this.functions = {};
-    this.params = {};
+    this.bindings = {};
     this.lastBlock = null;
   }
 
-  defineVariable (name: string, id: string, constant = false) {
-    if (this.constants[name]) {
-      throw new Error(`Variable "${name}" is already defined in this scope.`);
+  define (name: string, binding: Binding) {
+    if (Object.hasOwn(this.bindings, name)) {
+      throw new Error(`"${name}" is already defined in this scope.`);
     }
-    this.variables[name] = `${name}@${this.id}`;
-    this.variableIds[name] = id;
-    this.constants[name] = constant;
+
+    this.bindings[name] = binding;
+  }
+
+  defineVariable (name: string, id: string, constant = false) {
+    const storage = {
+      name: `${name}@${this.id}`,
+      id
+    };
+    const variable: VariableBinding = {
+      kind: 'variable',
+      storage,
+      get: {
+        kind: 'function',
+        blockType: 'reporter',
+        args: [],
+        create: () => ({
+          opcode: 'data_variable',
+          fields: {
+            VARIABLE: [storage.name, storage.id]
+          }
+        })
+      }
+    };
+
+    if (!constant) {
+      variable.set = {
+        kind: 'function',
+        blockType: 'command',
+        args: [10],
+        create: ({ inputs }) => ({
+          opcode: 'data_setvariableto',
+          fields: {
+            VARIABLE: [storage.name, storage.id]
+          },
+          inputs: {
+            VALUE: inputs[0]
+          }
+        })
+      };
+    }
+
+    this.define(name, variable);
+    return variable;
   }
 
   defineParam (name: string) {
-    this.params[name] = true;
+    this.define(name, {
+      kind: 'variable',
+      get: {
+        kind: 'function',
+        blockType: 'reporter',
+        args: [],
+        create: () => ({
+          opcode: 'argument_reporter_string_number',
+          fields: {
+            VALUE: [name, null]
+          }
+        })
+      }
+    });
   }
 
-  importVariable (name: string, scopedName: string, id: string, constant = false) {
-    this.defineVariable(name, id, constant);
-    this.variables[name] = scopedName;
-  }
-
-  defineFunction (name: string, mutation: Mutation) {
-    this.functions[name] = mutation;
-  }
-
-  resolveVariable (name: string): ResolvedVariable | null {
-    if (name in this.variables) {
-      return {
-        type: BindingType.Variable,
-        name: this.variables[name],
-        id: this.variableIds[name],
-        constant: this.constants[name]
-      };
+  resolve (name: string): Binding | null {
+    if (Object.hasOwn(this.bindings, name)) {
+      return this.bindings[name];
     }
-    if (name in this.params) {
-      return {
-        type: BindingType.Parameter,
-        constant: true
-      };
-    }
-    if (name in this.functions) {
-      return {
-        type: BindingType.Function,
-        constant: true
-      };
-    }
-    if (this.parent) return this.parent.resolveVariable(name);
-    return null;
-  }
 
-  resolveFunction (name: string): Mutation | null {
-    if (name in this.functions) return this.functions[name];
-    if (this.parent) return this.parent.resolveFunction(name);
+    if (this.parent) {
+      return this.parent.resolve(name);
+    }
+
     return null;
   }
 

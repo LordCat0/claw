@@ -118,6 +118,7 @@ class Tokenizer {
         case ']': this.push(TokenType.RBRACKET, ch); break;
         case ';': this.push(TokenType.SEMICOLON, ch); break;
         case ',': this.push(TokenType.COMMA, ch); break;
+        case '.': this.push(TokenType.DOT, ch); break;
         case '=': this.push(TokenType.EQUALS, ch); break;
         case '!': this.push(TokenType.NOT, ch); break;
         case '<': case '>':
@@ -136,7 +137,12 @@ class Tokenizer {
   }
 
   push (type: TokenType, value: Token['value']) {
-    this.tokens.push({ type, value, line: this.line, col: this.col });
+    this.tokens.push({
+      type,
+      value,
+      line: this.line,
+      col: this.col
+    });
   }
 
   readNumber () {

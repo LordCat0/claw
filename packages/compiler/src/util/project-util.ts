@@ -1,8 +1,13 @@
-import type { ScratchBlock, Sprite, BlockOptions, SpriteOptions } from '../types.ts';
+import type {
+  ScratchBlock,
+  Sprite,
+  BlockOptions,
+  SpriteOptions
+} from '../types.ts';
 
 export const newSprite = (opts: SpriteOptions): Sprite => ({
   isStage: opts.isStage ?? false,
-  name: opts.name, // Required
+  name: opts.name,
   variables: opts.variables ?? {},
   lists: opts.lists ?? {},
   broadcasts: opts.broadcasts ?? {},
@@ -28,7 +33,7 @@ export const newSprite = (opts: SpriteOptions): Sprite => ({
 });
 
 export const newBlock = (opts: BlockOptions): ScratchBlock => ({
-  opcode: opts.opcode, // Required
+  opcode: opts.opcode,
   next: opts.next ?? null,
   parent: opts.parent ?? null,
   inputs: opts.inputs ?? {},

@@ -1,3 +1,5 @@
+import type Compiler from './compiler.ts';
+
 // Tokens
 
 export const enum TokenType {
@@ -13,6 +15,7 @@ export const enum TokenType {
   RBRACKET = 'RBRACKET',
   SEMICOLON = 'SEMICOLON',
   COMMA = 'COMMA',
+  DOT = 'DOT',
   OPERATOR = 'OPERATOR',
   EQUALS = 'EQUALS',
   COMPARISON = 'COMPARISON',
@@ -57,12 +60,14 @@ export const enum NodeType {
   RepeatStatement = 'RepeatStatement',
   ForStatement = 'ForStatement',
   FunctionDeclaration = 'FunctionDeclaration',
+  FunctionExpression = 'FunctionExpression',
   ReturnStatement = 'ReturnStatement',
   ImportStatement = 'ImportStatement',
   ExportStatement = 'ExportStatement',
   BinaryExpression = 'BinaryExpression',
   UnaryExpression = 'UnaryExpression',
   CallExpression = 'CallExpression',
+  MemberExpression = 'MemberExpression',
   UpdateExpression = 'UpdateExpression',
   NumberLiteral = 'NumberLiteral',
   StringLiteral = 'StringLiteral',
@@ -70,9 +75,30 @@ export const enum NodeType {
   Identifier = 'Identifier'
 }
 
-export type Statement = Assignment | ExpressionStatement | VarDeclaration | IfStatement | WhileStatement | RepeatStatement | ForStatement | FunctionDeclaration | ReturnStatement | ImportStatement | ExportStatement;
+export type Statement =
+  | Assignment
+  | ExpressionStatement
+  | VarDeclaration
+  | IfStatement
+  | WhileStatement
+  | RepeatStatement
+  | ForStatement
+  | FunctionDeclaration
+  | ReturnStatement
+  | ImportStatement
+  | ExportStatement;
 
-export type Expression = BinaryExpression | UnaryExpression | CallExpression | UpdateExpression | NumberLiteral | StringLiteral | BooleanLiteral | Identifier;
+export type Expression =
+  | BinaryExpression
+  | UnaryExpression
+  | FunctionExpression
+  | CallExpression
+  | MemberExpression
+  | UpdateExpression
+  | NumberLiteral
+  | StringLiteral
+  | BooleanLiteral
+  | Identifier;
 
 export interface Program {
   type: NodeType.Program;
@@ -137,6 +163,13 @@ export interface FunctionDeclaration {
   body: Block;
 }
 
+export interface FunctionExpression {
+  type: NodeType.FunctionExpression;
+  params: string[];
+  warp: boolean;
+  body: Block;
+}
+
 export interface ReturnStatement {
   type: NodeType.ReturnStatement;
   value: Expression | null;
@@ -146,6 +179,7 @@ export interface ImportStatement {
   type: NodeType.ImportStatement;
   names: string[];
   source: string;
+  defaultImport: boolean;
 }
 
 export interface ExportStatement {
@@ -170,6 +204,12 @@ interface CallExpression {
   type: NodeType.CallExpression;
   callee: Expression;
   arguments: Expression[];
+}
+
+export interface MemberExpression {
+  type: NodeType.MemberExpression;
+  object: Expression;
+  property: string;
 }
 
 export interface UpdateExpression {
@@ -275,34 +315,57 @@ export interface SpriteOptions extends Partial<Sprite> {
   name: string;
 }
 
-// Scope resolution
+// Scope bindings
 
-export const enum BindingType {
-  Variable = 'variable',
-  Parameter = 'parameter',
-  Function = 'function'
+// Numeric arguments use Scratch's primitive input tags.
+export type FunctionArgument =
+  | number
+  | 'field'
+  | 'body'
+  | 'variable'
+  | 'writableVariable'
+  | 'list'
+  | 'broadcast';
+
+export interface CallArguments {
+  inputs: ScratchInput[];
+  fields: ScratchBlock['fields'][string][];
+  bodies: string[];
 }
 
-interface Variable {
-  type: BindingType.Variable;
-  name: string;
-  id: string;
-  constant: boolean;
+export interface FunctionBinding {
+  kind: 'function';
+  blockType: 'command' | 'reporter' | 'hat';
+  args: FunctionArgument[];
+  create: (args: CallArguments, compiler: Compiler) => BlockOptions;
+  returnValue?: ScratchInput;
 }
 
-interface Parameter {
-  type: BindingType.Parameter;
-  constant: true;
+export interface VariableBinding {
+  kind: 'variable';
+  get: FunctionBinding;
+  set?: FunctionBinding;
+  storage?: {
+    name: string;
+    id: string;
+  };
 }
 
-interface FunctionReference {
-  type: BindingType.Function;
-  constant: true;
+export interface ObjectBinding {
+  kind: 'object';
+  members: Bindings;
 }
 
-export type ResolvedVariable = Variable | Parameter | FunctionReference;
+export type Binding = VariableBinding | FunctionBinding | ObjectBinding;
+export type Bindings = Record<string, Binding>;
 
 // Compiler output
+
+export interface ProjectMeta {
+  agent: string;
+  semver: string;
+  vm: string;
+}
 
 export interface ZipOutputs {
   base64: string;
@@ -328,17 +391,3 @@ export interface Monitor {
   x: number;
   y: number;
 }
-
-interface ExportedVariable {
-  type: BindingType.Variable;
-  name: string;
-  id: string;
-  constant: boolean;
-}
-
-interface ExportedFunction {
-  type: BindingType.Function;
-  mutation: Mutation;
-}
-
-export type FileExport = ExportedVariable | ExportedFunction;
