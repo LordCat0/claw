@@ -370,16 +370,11 @@ class Compiler {
       const name = String(expression.value);
 
       switch (argument) {
-        case 'variable':
-        case 'writableVariable': {
+        case 'variable': {
           const resolved = scope.resolve(name);
 
           if (!resolved || resolved.kind !== 'variable' || !resolved.storage) {
             throw new Error(`"${name}" is not a variable.`);
-          }
-
-          if (argument === 'writableVariable' && !resolved.set) {
-            throw new Error('This variable cannot be set.');
           }
 
           args.fields[i] = [resolved.storage.name, resolved.storage.id];

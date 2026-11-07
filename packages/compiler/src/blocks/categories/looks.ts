@@ -77,28 +77,6 @@ export default {
         opcode: 'looks_nextcostume'
       })
     },
-    changeSize: {
-      kind: 'function',
-      blockType: 'command',
-      args: [4],
-      create: ({ inputs }) => ({
-        opcode: 'looks_changesizeby',
-        inputs: {
-          CHANGE: inputs[0]
-        }
-      })
-    },
-    setSize: {
-      kind: 'function',
-      blockType: 'command',
-      args: [4],
-      create: ({ inputs }) => ({
-        opcode: 'looks_setsizeto',
-        inputs: {
-          SIZE: inputs[0]
-        }
-      })
-    },
     changeEffect: {
       kind: 'function',
       blockType: 'command',

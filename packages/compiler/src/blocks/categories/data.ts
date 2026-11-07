@@ -15,51 +15,10 @@ export default {
           ITEM: inputs[0]
         }
       })
-    }
-  },
-  project: {
+    },
     variables: {
       kind: 'object',
       members: {
-        get: {
-          kind: 'function',
-          blockType: 'reporter',
-          args: ['variable'],
-          create: ({ fields }) => ({
-            opcode: 'data_variable',
-            fields: {
-              VARIABLE: fields[0]
-            }
-          })
-        },
-        set: {
-          kind: 'function',
-          blockType: 'command',
-          args: ['writableVariable', 10],
-          create: ({ fields, inputs }) => ({
-            opcode: 'data_setvariableto',
-            inputs: {
-              VALUE: inputs[1]
-            },
-            fields: {
-              VARIABLE: fields[0]
-            }
-          })
-        },
-        change: {
-          kind: 'function',
-          blockType: 'command',
-          args: ['writableVariable', 4],
-          create: ({ fields, inputs }) => ({
-            opcode: 'data_changevariableby',
-            inputs: {
-              VALUE: inputs[1]
-            },
-            fields: {
-              VARIABLE: fields[0]
-            }
-          })
-        },
         show: {
           kind: 'function',
           blockType: 'command',

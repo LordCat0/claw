@@ -80,28 +80,6 @@ export default {
         opcode: 'sound_cleareffects'
       })
     },
-    changeVolume: {
-      kind: 'function',
-      blockType: 'command',
-      args: [4],
-      create: ({ inputs }) => ({
-        opcode: 'sound_changevolumeby',
-        inputs: {
-          VOLUME: inputs[0]
-        }
-      })
-    },
-    setVolume: {
-      kind: 'function',
-      blockType: 'command',
-      args: [4],
-      create: ({ inputs }) => ({
-        opcode: 'sound_setvolumeto',
-        inputs: {
-          VOLUME: inputs[0]
-        }
-      })
-    },
     volume: {
       kind: 'variable',
       get: {

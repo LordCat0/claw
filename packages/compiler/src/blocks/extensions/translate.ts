@@ -1,7 +1,7 @@
 import type { Bindings } from '../../types.ts';
 
 export default {
-  getTranslate: {
+  translate: {
     kind: 'function',
     blockType: 'reporter',
     args: [10, 10],
@@ -22,14 +22,6 @@ export default {
         }
       };
     }
-  },
-  getViewerLanguage: {
-    kind: 'function',
-    blockType: 'reporter',
-    args: [],
-    create: () => ({
-      opcode: 'translate_getViewerLanguage'
-    })
   },
   language: {
     kind: 'variable',

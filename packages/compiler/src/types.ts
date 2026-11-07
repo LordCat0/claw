@@ -324,7 +324,6 @@ export type FunctionArgument =
   | 'field'
   | 'body'
   | 'variable'
-  | 'writableVariable'
   | 'list'
   | 'broadcast';
 

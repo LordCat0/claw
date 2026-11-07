@@ -13,28 +13,6 @@ export default {
         }
       })
     },
-    turnRight: {
-      kind: 'function',
-      blockType: 'command',
-      args: [4],
-      create: ({ inputs }) => ({
-        opcode: 'motion_turnright',
-        inputs: {
-          DEGREES: inputs[0]
-        }
-      })
-    },
-    turnLeft: {
-      kind: 'function',
-      blockType: 'command',
-      args: [4],
-      create: ({ inputs }) => ({
-        opcode: 'motion_turnleft',
-        inputs: {
-          DEGREES: inputs[0]
-        }
-      })
-    },
     goTo: {
       kind: 'function',
       blockType: 'command',
@@ -103,17 +81,6 @@ export default {
         }
       })
     },
-    pointInDirection: {
-      kind: 'function',
-      blockType: 'command',
-      args: [8],
-      create: ({ inputs }) => ({
-        opcode: 'motion_pointindirection',
-        inputs: {
-          DIRECTION: inputs[0]
-        }
-      })
-    },
     pointTowards: {
       kind: 'function',
       blockType: 'command',
@@ -134,50 +101,6 @@ export default {
           }
         };
       }
-    },
-    changeX: {
-      kind: 'function',
-      blockType: 'command',
-      args: [4],
-      create: ({ inputs }) => ({
-        opcode: 'motion_changexby',
-        inputs: {
-          DX: inputs[0]
-        }
-      })
-    },
-    setX: {
-      kind: 'function',
-      blockType: 'command',
-      args: [4],
-      create: ({ inputs }) => ({
-        opcode: 'motion_setx',
-        inputs: {
-          X: inputs[0]
-        }
-      })
-    },
-    changeY: {
-      kind: 'function',
-      blockType: 'command',
-      args: [4],
-      create: ({ inputs }) => ({
-        opcode: 'motion_changeyby',
-        inputs: {
-          DY: inputs[0]
-        }
-      })
-    },
-    setY: {
-      kind: 'function',
-      blockType: 'command',
-      args: [4],
-      create: ({ inputs }) => ({
-        opcode: 'motion_sety',
-        inputs: {
-          Y: inputs[0]
-        }
-      })
     },
     bounceOnEdge: {
       kind: 'function',
@@ -263,22 +186,6 @@ export default {
           }
         })
       }
-    },
-    xPosition: {
-      kind: 'function',
-      blockType: 'reporter',
-      args: [],
-      create: () => ({
-        opcode: 'motion_xposition'
-      })
-    },
-    yPosition: {
-      kind: 'function',
-      blockType: 'reporter',
-      args: [],
-      create: () => ({
-        opcode: 'motion_yposition'
-      })
     }
   }
 } satisfies Record<string, Bindings>;

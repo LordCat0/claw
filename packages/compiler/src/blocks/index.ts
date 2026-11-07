@@ -22,17 +22,21 @@ import type { Bindings } from '../types.ts';
 export const globals: Bindings = {
   ...control.globals,
   ...data.globals,
-  wait: control.project.wait,
+  math: {
+    kind: 'object',
+    members: operators.math
+  },
+  text: {
+    kind: 'object',
+    members: operators.text
+  },
   project: {
     kind: 'object',
     members: {
       ...looks.project,
       ...sound.project,
       ...events.project,
-      ...control.project,
-      ...sensing.project,
-      ...operators.project,
-      ...data.project
+      ...sensing.project
     }
   },
   sprite: {

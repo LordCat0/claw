@@ -1,55 +1,7 @@
 import type { Bindings } from '../../types.ts';
 
 export default {
-  project: {
-    add: {
-      kind: 'function',
-      blockType: 'reporter',
-      args: [4, 4],
-      create: ({ inputs }) => ({
-        opcode: 'operator_add',
-        inputs: {
-          NUM1: inputs[0],
-          NUM2: inputs[1]
-        }
-      })
-    },
-    subtract: {
-      kind: 'function',
-      blockType: 'reporter',
-      args: [4, 4],
-      create: ({ inputs }) => ({
-        opcode: 'operator_subtract',
-        inputs: {
-          NUM1: inputs[0],
-          NUM2: inputs[1]
-        }
-      })
-    },
-    multiply: {
-      kind: 'function',
-      blockType: 'reporter',
-      args: [4, 4],
-      create: ({ inputs }) => ({
-        opcode: 'operator_multiply',
-        inputs: {
-          NUM1: inputs[0],
-          NUM2: inputs[1]
-        }
-      })
-    },
-    divide: {
-      kind: 'function',
-      blockType: 'reporter',
-      args: [4, 4],
-      create: ({ inputs }) => ({
-        opcode: 'operator_divide',
-        inputs: {
-          NUM1: inputs[0],
-          NUM2: inputs[1]
-        }
-      })
-    },
+  math: {
     random: {
       kind: 'function',
       blockType: 'reporter',
@@ -62,98 +14,42 @@ export default {
         }
       })
     },
-    greaterThan: {
+    round: {
       kind: 'function',
       blockType: 'reporter',
-      args: [10, 10],
+      args: [4],
       create: ({ inputs }) => ({
-        opcode: 'operator_gt',
+        opcode: 'operator_round',
         inputs: {
-          OPERAND1: inputs[0],
-          OPERAND2: inputs[1]
+          NUM: inputs[0]
         }
       })
     },
-    lessThan: {
+    calculate: {
       kind: 'function',
       blockType: 'reporter',
-      args: [10, 10],
-      create: ({ inputs }) => ({
-        opcode: 'operator_lt',
+      args: ['field', 4],
+      create: ({ fields, inputs }) => ({
+        opcode: 'operator_mathop',
         inputs: {
-          OPERAND1: inputs[0],
-          OPERAND2: inputs[1]
+          NUM: inputs[1]
+        },
+        fields: {
+          OPERATOR: fields[0]
         }
       })
-    },
-    equals: {
+    }
+  },
+  text: {
+    letterAt: {
       kind: 'function',
       blockType: 'reporter',
-      args: [10, 10],
-      create: ({ inputs }) => ({
-        opcode: 'operator_equals',
-        inputs: {
-          OPERAND1: inputs[0],
-          OPERAND2: inputs[1]
-        }
-      })
-    },
-    and: {
-      kind: 'function',
-      blockType: 'reporter',
-      args: [10, 10],
-      create: ({ inputs }) => ({
-        opcode: 'operator_and',
-        inputs: {
-          OPERAND1: inputs[0],
-          OPERAND2: inputs[1]
-        }
-      })
-    },
-    or: {
-      kind: 'function',
-      blockType: 'reporter',
-      args: [10, 10],
-      create: ({ inputs }) => ({
-        opcode: 'operator_or',
-        inputs: {
-          OPERAND1: inputs[0],
-          OPERAND2: inputs[1]
-        }
-      })
-    },
-    not: {
-      kind: 'function',
-      blockType: 'reporter',
-      args: [10],
-      create: ({ inputs }) => ({
-        opcode: 'operator_not',
-        inputs: {
-          OPERAND: inputs[0]
-        }
-      })
-    },
-    join: {
-      kind: 'function',
-      blockType: 'reporter',
-      args: [10, 10],
-      create: ({ inputs }) => ({
-        opcode: 'operator_join',
-        inputs: {
-          STRING1: inputs[0],
-          STRING2: inputs[1]
-        }
-      })
-    },
-    letterOf: {
-      kind: 'function',
-      blockType: 'reporter',
-      args: [6, 10],
+      args: [10, 6],
       create: ({ inputs }) => ({
         opcode: 'operator_letter_of',
         inputs: {
-          LETTER: inputs[0],
-          STRING: inputs[1]
+          LETTER: inputs[1],
+          STRING: inputs[0]
         }
       })
     },
@@ -177,43 +73,6 @@ export default {
         inputs: {
           STRING1: inputs[0],
           STRING2: inputs[1]
-        }
-      })
-    },
-    mod: {
-      kind: 'function',
-      blockType: 'reporter',
-      args: [4, 4],
-      create: ({ inputs }) => ({
-        opcode: 'operator_mod',
-        inputs: {
-          NUM1: inputs[0],
-          NUM2: inputs[1]
-        }
-      })
-    },
-    round: {
-      kind: 'function',
-      blockType: 'reporter',
-      args: [4],
-      create: ({ inputs }) => ({
-        opcode: 'operator_round',
-        inputs: {
-          NUM: inputs[0]
-        }
-      })
-    },
-    math: {
-      kind: 'function',
-      blockType: 'reporter',
-      args: ['field', 4],
-      create: ({ fields, inputs }) => ({
-        opcode: 'operator_mathop',
-        inputs: {
-          NUM: inputs[1]
-        },
-        fields: {
-          OPERATOR: fields[0]
         }
       })
     }
