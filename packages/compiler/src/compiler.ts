@@ -665,7 +665,9 @@ class Compiler {
         if (!scope.isFunction) {
           throw new Error('Return statements can only be used inside of functions.');
         }
-        const value = await this.parseExpression(statement.value, scope, true);
+        const value = statement.value
+          ? await this.parseExpression(statement.value, scope, true)
+          : [1, [10, '']] as ScratchInput;
         const block1 = this.append(scope, {
           opcode: 'data_setvariableto',
           fields: {
@@ -807,6 +809,15 @@ class Compiler {
     }
 
     await this.parseASTBody(expression.body.body, funcScope);
+    this.append(funcScope, {
+      opcode: 'data_setvariableto',
+      fields: {
+        VARIABLE: ['$', this._returnVar]
+      },
+      inputs: {
+        VALUE: [1, [10, '']]
+      }
+    });
     return binding;
   }
 
