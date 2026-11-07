@@ -164,7 +164,7 @@ export interface ForStatement {
   type: NodeType.ForStatement;
   init: Statement;
   test: Expression;
-  update: Expression;
+  update: Statement;
   body: Block;
 }
 

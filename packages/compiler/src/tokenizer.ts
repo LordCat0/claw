@@ -73,6 +73,13 @@ class Tokenizer {
 
       // Two character operators and comparisons
       const next = this.source[this.pos + 1];
+      if (['+', '-', '*', '/', '%'].includes(ch) && next === '=') {
+        this.push(TokenType.OPERATOR, ch + next);
+        this.pos += 2;
+        this.col += 2;
+        continue;
+      }
+
       if ((ch === '=' || ch === '!' || ch === '<' || ch === '>') && next === '=') {
         this.push(TokenType.COMPARISON, ch + next);
         this.pos += 2;

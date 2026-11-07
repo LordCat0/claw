@@ -1124,7 +1124,7 @@ class Compiler {
       tailScope.lastBlock = state ? null : bodyScope.lastBlock;
 
       if (statement.type === NodeType.ForStatement) {
-        await this.parseExpression(statement.update, tailScope);
+        await this.parseStatement(statement.update, tailScope);
       }
 
       if (count) {

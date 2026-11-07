@@ -114,12 +114,30 @@ class ASTBuilder {
       }
     }
 
-    const expr = this.parseExpression();
+    const statement = this.parseSimpleStatement();
+    this.expect(TokenType.SEMICOLON);
+    return statement;
+  }
 
-    if (this.current().type === TokenType.EQUALS) {
+  parseSimpleStatement (): Statement {
+    const expr = this.parseExpression();
+    const token = this.current();
+
+    if (token.type === TokenType.EQUALS ||
+        (token.type === TokenType.OPERATOR &&
+          ['+=', '-=', '*=', '/=', '%='].includes(token.value as string))) {
       this.advance();
-      const value = this.parseExpression();
-      this.expect(TokenType.SEMICOLON);
+      let value = this.parseExpression();
+
+      if (token.type === TokenType.OPERATOR) {
+        value = {
+          type: NodeType.BinaryExpression,
+          operator: (token.value as string)[0],
+          left: expr,
+          right: value
+        };
+      }
+
       return {
         type: NodeType.Assignment,
         target: expr,
@@ -127,7 +145,6 @@ class ASTBuilder {
       };
     }
 
-    this.expect(TokenType.SEMICOLON);
     return {
       type: NodeType.ExpressionStatement,
       expression: expr
@@ -210,7 +227,7 @@ class ASTBuilder {
     const init = this.parseStatement();
     const test = this.parseExpression();
     this.expect(TokenType.SEMICOLON);
-    const update = this.parseExpression();
+    const update = this.parseSimpleStatement();
     this.expect(TokenType.RPAREN);
     const body = this.parseBlock();
     return {
