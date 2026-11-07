@@ -17,6 +17,8 @@ export const enum TokenType {
   SEMICOLON = 'SEMICOLON',
   COMMA = 'COMMA',
   DOT = 'DOT',
+  QUESTION = 'QUESTION',
+  COLON = 'COLON',
   OPERATOR = 'OPERATOR',
   EQUALS = 'EQUALS',
   COMPARISON = 'COMPARISON',
@@ -70,6 +72,7 @@ export const enum NodeType {
   ImportStatement = 'ImportStatement',
   ExportStatement = 'ExportStatement',
   BinaryExpression = 'BinaryExpression',
+  ConditionalExpression = 'ConditionalExpression',
   UnaryExpression = 'UnaryExpression',
   CallExpression = 'CallExpression',
   MemberExpression = 'MemberExpression',
@@ -97,6 +100,7 @@ export type Statement =
 
 export type Expression =
   | BinaryExpression
+  | ConditionalExpression
   | UnaryExpression
   | FunctionExpression
   | CallExpression
@@ -163,11 +167,11 @@ export interface ForStatement {
 }
 
 export interface BreakStatement {
-  type: NodeType.BreakStatement
+  type: NodeType.BreakStatement;
 }
 
 export interface ContinueStatement {
-  type: NodeType.ContinueStatement
+  type: NodeType.ContinueStatement;
 }
 
 export interface FunctionDeclaration {
@@ -207,6 +211,13 @@ export interface BinaryExpression {
   operator: string;
   left: Expression;
   right: Expression;
+}
+
+export interface ConditionalExpression {
+  type: NodeType.ConditionalExpression;
+  test: Expression;
+  consequent: Expression;
+  alternate: Expression;
 }
 
 export interface UnaryExpression {

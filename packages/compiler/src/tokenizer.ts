@@ -119,6 +119,8 @@ class Tokenizer {
         case ';': this.push(TokenType.SEMICOLON, ch); break;
         case ',': this.push(TokenType.COMMA, ch); break;
         case '.': this.push(TokenType.DOT, ch); break;
+        case '?': this.push(TokenType.QUESTION, ch); break;
+        case ':': this.push(TokenType.COLON, ch); break;
         case '=': this.push(TokenType.EQUALS, ch); break;
         case '!': this.push(TokenType.NOT, ch); break;
         case '<': case '>':

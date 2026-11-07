@@ -88,18 +88,18 @@ class ASTBuilder {
         case Keyword.for:
           return this.parseFor();
         case Keyword.break: {
-          this.advance()
-          this.expect(TokenType.SEMICOLON)
+          this.advance();
+          this.expect(TokenType.SEMICOLON);
           return {
             type: NodeType.BreakStatement
-          }
+          };
         }
         case Keyword.continue: {
-          this.advance()
-          this.expect(TokenType.SEMICOLON)
+          this.advance();
+          this.expect(TokenType.SEMICOLON);
           return {
             type: NodeType.ContinueStatement
-          }
+          };
         }
         case Keyword.function:
           return this.parseFunctionDeclaration(false);
@@ -338,7 +338,23 @@ class ASTBuilder {
   // Expressions
 
   parseExpression (): Expression {
-    return this.parseOr();
+    const test = this.parseOr();
+
+    if (this.current().type !== TokenType.QUESTION) {
+      return test;
+    }
+
+    this.advance();
+    const consequent = this.parseExpression();
+    this.expect(TokenType.COLON);
+    const alternate = this.parseExpression();
+
+    return {
+      type: NodeType.ConditionalExpression,
+      test,
+      consequent,
+      alternate
+    };
   }
 
   parseOr (): Expression {

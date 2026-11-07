@@ -14,7 +14,7 @@ class Scope {
   firstBlock: string | null;
   lastBlock: string | null;
   frame: CallFrame | null;
-  loopState: VariableBinding | null
+  loopState: VariableBinding | null;
   parameters: string[];
   temporaries: {
     values: VariableBinding[];
@@ -29,7 +29,7 @@ class Scope {
     this.firstBlock = null;
     this.lastBlock = null;
     this.frame = parent?.frame || null;
-    this.loopState = parent?.loopState || null
+    this.loopState = parent?.loopState || null;
     this.parameters = parent?.parameters || [];
     this.temporaries = parent?.temporaries || {
       values: [],
@@ -131,7 +131,7 @@ class Scope {
     const child = new Scope(this, newFunction || this.isFunction);
 
     if (newFunction) {
-      child.loopState = null
+      child.loopState = null;
       child.temporaries = {
         values: [],
         next: 0
