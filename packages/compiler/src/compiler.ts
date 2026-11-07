@@ -327,7 +327,8 @@ class Compiler {
         } else {
           args.inputs[i] = await this.parseExpression(expression, scope, true);
 
-          if (definition.procedure?.frame && this.needsFrame(expression)) {
+          if ((definition.procedure?.frame && this.needsFrame(expression)) ||
+              expressions.slice(i + 1).some(value => this.needsFrame(value))) {
             args.inputs[i] = this.capture(args.inputs[i], scope);
           }
         }
@@ -492,6 +493,10 @@ class Compiler {
 
     let left = await this.parseExpression(expr.left, scope, true);
 
+    if (this.needsFrame(expr.right)) {
+      left = this.capture(left, scope);
+    }
+
     const right = await this.parseExpression(expr.right, scope, true);
 
     if (expr.operator === '+' &&
@@ -642,7 +647,12 @@ class Compiler {
       }
       case NodeType.ExpressionStatement: {
         const result = await this.parseExpression(statement.expression, scope);
-        return typeof result === 'string' ? result : scope.lastBlock;
+
+        if (Array.isArray(result)) {
+          this.capture(result, scope);
+        }
+
+        return scope.lastBlock;
       }
       case NodeType.WhileStatement: {
         const test = await this.parseExpression(statement.test, scope, true);
