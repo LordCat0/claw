@@ -203,7 +203,10 @@ class Tokenizer {
 
   readIdentifier () {
     const start = this.pos;
-    while (this.pos < this.source.length && /[a-zA-Z0-9_*]/.test(this.source[this.pos])) {
+    while (this.pos < this.source.length && /[a-zA-Z0-9_]/.test(this.source[this.pos])) {
+      this.pos++;
+    }
+    if (this.source.slice(start, this.pos) === 'function' && this.source[this.pos] === '*') {
       this.pos++;
     }
     const value = this.source.slice(start, this.pos);
