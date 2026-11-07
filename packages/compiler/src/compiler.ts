@@ -176,6 +176,15 @@ class Compiler {
     }, this));
   }
 
+  not (value: ScratchInput): ScratchInput {
+    return [2, this.insertBlock({
+      opcode: 'operator_not',
+      inputs: {
+        OPERAND: value
+      }
+    })];
+  }
+
   async resolveBinding (
     expression: Expression,
     scope: Scope
@@ -365,108 +374,83 @@ class Compiler {
     expr: BinaryExpression,
     scope: Scope
   ): Promise<ScratchInput> {
-    const left = await this.parseExpression(expr.left, scope, true);
+    const arithmetic: Record<string, string> = {
+      '+': 'operator_add',
+      '-': 'operator_subtract',
+      '*': 'operator_multiply',
+      '/': 'operator_divide',
+      '%': 'operator_mod'
+    };
+    const comparisons: Record<string, string> = {
+      '>': 'operator_gt',
+      '<': 'operator_lt',
+      '==': 'operator_equals',
+      '!=': 'operator_equals',
+      '<=': 'operator_gt',
+      '>=': 'operator_lt'
+    };
+
+    const logical: Record<string, string> = {
+      '&&': 'operator_and',
+      '||': 'operator_or'
+    };
+
+    if (!Object.hasOwn(arithmetic, expr.operator) &&
+        !Object.hasOwn(comparisons, expr.operator) &&
+        !Object.hasOwn(logical, expr.operator)) {
+      throw new Error(`Unsupported binary operator "${expr.operator}".`);
+    }
+
+    let left = await this.parseExpression(expr.left, scope, true);
+
     const right = await this.parseExpression(expr.right, scope, true);
 
-    switch (expr.operator) {
-      case '+': {
-        if ((left[1] as number[])[0] === 10 || (right[1] as number[])[0] === 10) {
-          return [2, this.insertBlock({
-            opcode: 'operator_join',
-            inputs: {
-              STRING1: left,
-              STRING2: right
-            }
-          })];
+    if (expr.operator === '+' &&
+        ((left[1] as number[])[0] === 10 || (right[1] as number[])[0] === 10)) {
+      return [2, this.insertBlock({
+        opcode: 'operator_join',
+        inputs: {
+          STRING1: left,
+          STRING2: right
         }
-
-        return [2, this.insertBlock({
-          opcode: 'operator_add',
-          inputs: {
-            NUM1: left,
-            NUM2: right
-          }
-        })];
-      }
-      case '-': {
-        return [2, this.insertBlock({
-          opcode: 'operator_subtract',
-          inputs: {
-            NUM1: left,
-            NUM2: right
-          }
-        })];
-      }
-      case '*': {
-        return [2, this.insertBlock({
-          opcode: 'operator_multiply',
-          inputs: {
-            NUM1: left,
-            NUM2: right
-          }
-        })];
-      }
-      case '/': {
-        return [2, this.insertBlock({
-          opcode: 'operator_divide',
-          inputs: {
-            NUM1: left,
-            NUM2: right
-          }
-        })];
-      }
-      case '>': {
-        return [2, this.insertBlock({
-          opcode: 'operator_gt',
-          inputs: {
-            OPERAND1: left,
-            OPERAND2: right
-          }
-        })];
-      }
-      case '<': {
-        return [2, this.insertBlock({
-          opcode: 'operator_lt',
-          inputs: {
-            OPERAND1: left,
-            OPERAND2: right
-          }
-        })];
-      }
-      case '==': {
-        return [2, this.insertBlock({
-          opcode: 'operator_equals',
-          inputs: {
-            OPERAND1: left,
-            OPERAND2: right
-          }
-        })];
-      }
-      case '&&': {
-        return [2, this.insertBlock({
-          opcode: 'operator_and',
-          inputs: {
-            OPERAND1: left,
-            OPERAND2: right
-          }
-        })];
-      }
-      case '||': {
-        return [2, this.insertBlock({
-          opcode: 'operator_or',
-          inputs: {
-            OPERAND1: left,
-            OPERAND2: right
-          }
-        })];
-      }
+      })];
     }
+
+    let result: ScratchInput;
+
+    if (Object.hasOwn(arithmetic, expr.operator)) {
+      result = [2, this.insertBlock({
+        opcode: arithmetic[expr.operator],
+        inputs: {
+          NUM1: left,
+          NUM2: right
+        }
+      })];
+    } else {
+      result = [2, this.insertBlock({
+        opcode: comparisons[expr.operator] || logical[expr.operator],
+        inputs: {
+          OPERAND1: left,
+          OPERAND2: right
+        }
+      })];
+    }
+
+    if (['!=', '<=', '>='].includes(expr.operator)) {
+      return this.not(result);
+    }
+
+    return result;
   }
 
   async parseUnaryExpression (
     expr: UnaryExpression,
     scope: Scope
   ): Promise<ScratchInput> {
+    if (expr.operator !== '!' && expr.operator !== '-') {
+      throw new Error(`Unsupported unary operator "${expr.operator}".`);
+    }
+
     const value = await this.parseExpression(expr.value, scope, true);
 
     if (expr.operator === '!') {
