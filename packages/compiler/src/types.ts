@@ -336,6 +336,7 @@ export interface CallArguments {
 export interface FunctionBinding {
   kind: 'function';
   blockType: 'command' | 'reporter' | 'hat';
+  compile?: () => Promise<void>;
   args: FunctionArgument[];
   create: (args: CallArguments, compiler: Compiler) => BlockOptions;
   procedure?: {
@@ -346,6 +347,7 @@ export interface FunctionBinding {
 
 export interface VariableBinding {
   kind: 'variable';
+  temporary?: boolean;
   get: FunctionBinding;
   set?: FunctionBinding;
   storage?: {

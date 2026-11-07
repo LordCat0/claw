@@ -15,6 +15,10 @@ class Scope {
   lastBlock: string | null;
   frame: CallFrame | null;
   parameters: string[];
+  temporaries: {
+    values: VariableBinding[];
+    next: number;
+  };
 
   constructor (parent: Scope | null = null, isFunction = false) {
     this.parent = parent;
@@ -25,6 +29,10 @@ class Scope {
     this.lastBlock = null;
     this.frame = parent?.frame || null;
     this.parameters = parent?.parameters || [];
+    this.temporaries = parent?.temporaries || {
+      values: [],
+      next: 0
+    };
   }
 
   define (name: string, binding: Binding) {
@@ -118,7 +126,16 @@ class Scope {
   }
 
   createChild (newFunction?: boolean) {
-    return new Scope(this, newFunction || this.isFunction);
+    const child = new Scope(this, newFunction || this.isFunction);
+
+    if (newFunction) {
+      child.temporaries = {
+        values: [],
+        next: 0
+      };
+    }
+
+    return child;
   }
 }
 

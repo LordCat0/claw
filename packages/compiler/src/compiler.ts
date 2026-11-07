@@ -10,6 +10,7 @@ import {
 import uid from './util/uid.ts';
 import Scope from './util/scope.ts';
 import CallFrame from './util/call-frame.ts';
+import type CallStorage from './util/call-storage.ts';
 import {
   globals,
   extensions
@@ -47,6 +48,7 @@ class Compiler {
   root: Sprite;
   consoleList: string;
   readyBroadcast: string;
+  frameStorage: CallStorage | null;
   private _zip: JSZip;
   private _exports: Record<string, Bindings>;
   private _compiledFiles: Record<string, 'visiting' | 'done'>;
@@ -54,6 +56,7 @@ class Compiler {
   private _runtimeLists: string[];
   private _currentFile: string | null;
   private _globals: Scope;
+  private _capturedInputs: Record<string, boolean>;
 
   constructor () {
     this.targets = [];
@@ -106,10 +109,12 @@ class Compiler {
     this._compiledFiles = {};
     this._startup = new Scope();
     this._runtimeLists = [];
+    this.frameStorage = null;
     this.readyBroadcast = uid();
     this.stage.broadcasts[this.readyBroadcast] = `$ready@${this.readyBroadcast}`;
     this._currentFile = null;
     this._globals = new Scope();
+    this._capturedInputs = {};
     Object.assign(this._globals.bindings, globals);
   }
 
@@ -175,22 +180,38 @@ class Compiler {
   }
 
   temporary (scope: Scope): VariableBinding {
-    if (scope.frame) {
-      return scope.frame.variable();
+    const index = scope.temporaries.next++;
+    let variable = scope.temporaries.values[index];
+
+    if (variable) {
+      return variable;
     }
 
-    const id = uid();
-    const variable = new Scope().defineVariable('$temporary', id);
-    this.root.variables[id] = [variable.storage.name, ''];
+    if (scope.frame) {
+      variable = scope.frame.variable();
+    } else {
+      const id = uid();
+      variable = new Scope().defineVariable('$temporary', id);
+      this.root.variables[id] = [variable.storage.name, ''];
+    }
+
+    variable.temporary = true;
+    scope.temporaries.values[index] = variable;
     return variable;
   }
 
   read (variable: VariableBinding): ScratchInput {
-    return [2, this.insertBlock(variable.get.create({
+    const id = this.insertBlock(variable.get.create({
       inputs: [],
       fields: [],
       bodies: []
-    }, this))];
+    }, this));
+
+    if (variable.temporary) {
+      this._capturedInputs[id] = true;
+    }
+
+    return [2, id];
   }
 
   write (variable: VariableBinding, value: ScratchInput, scope: Scope) {
@@ -202,6 +223,14 @@ class Compiler {
   }
 
   capture (value: ScratchInput, scope: Scope): ScratchInput {
+    if (value[0] === 1 && Array.isArray(value[1])) {
+      return value;
+    }
+
+    if (value[0] === 2 && this._capturedInputs[value[1] as string]) {
+      return value;
+    }
+
     const variable = this.temporary(scope);
     this.write(variable, value, scope);
     return this.read(variable);
@@ -220,6 +249,21 @@ class Compiler {
     })];
   }
 
+  additionOpcode (expression: BinaryExpression) {
+    const operands = [expression.left, expression.right];
+
+    if (operands.every(value => value.type === NodeType.NumberLiteral)) {
+      return 'operator_add';
+    }
+
+    if (operands.some(value => value.type === NodeType.StringLiteral &&
+        (value.value.trim() === '' || Number.isNaN(Number(value.value))))) {
+      return 'operator_join';
+    }
+
+    return null;
+  }
+
   needsFrame (node: Statement | Expression | Block): boolean {
     if (node.type === NodeType.FunctionDeclaration || node.type === NodeType.FunctionExpression) {
       return false;
@@ -234,8 +278,14 @@ class Compiler {
       return true;
     }
 
-    if (node.type === NodeType.BinaryExpression && ['+', '&&', '||'].includes(node.operator)) {
-      return true;
+    if (node.type === NodeType.BinaryExpression) {
+      if (node.operator === '&&' || node.operator === '||') {
+        return true;
+      }
+
+      if (node.operator === '+' && !this.additionOpcode(node)) {
+        return true;
+      }
     }
 
     return Object.values(node).some(value => {
@@ -295,6 +345,12 @@ class Compiler {
         `Function expects ${definition.args.length} arguments, ` +
         `got ${expressions.length}.`
       );
+    }
+
+    if (definition.compile) {
+      const compile = definition.compile;
+      delete definition.compile;
+      await compile();
     }
 
     if (asValue && definition.blockType !== 'reporter' && !definition.procedure) {
@@ -421,6 +477,13 @@ class Compiler {
 
     if (definition.blockType === 'hat') {
       this.insertBlock(block);
+
+      if (scope.temporaries.next) {
+        // Hat inputs can outlive the statement that declares them
+        scope.temporaries.values = scope.temporaries.values.slice(scope.temporaries.next);
+        scope.temporaries.next = 0;
+      }
+
       return scope.lastBlock;
     }
 
@@ -448,9 +511,7 @@ class Compiler {
   ) {
     const childScope = parentScope.createChild();
     childScope.lastBlock = null;
-    for (const statement of bodyStatements) {
-      await this.parseStatement(statement, childScope);
-    }
+    await this.parseASTBody(bodyStatements, childScope);
 
     if (childScope.firstBlock) {
       this.root.blocks[childScope.firstBlock].parent = parentBlockId;
@@ -510,8 +571,9 @@ class Compiler {
     }
 
     let sum: VariableBinding;
+    const addition = expr.operator === '+' ? this.additionOpcode(expr) : null;
 
-    if (expr.operator === '+') {
+    if (expr.operator === '+' && !addition) {
       sum = this.temporary(scope);
       this.write(sum, left, scope);
       left = this.read(sum);
@@ -569,6 +631,16 @@ class Compiler {
     }
 
     let result: ScratchInput;
+
+    if (addition === 'operator_join') {
+      return [2, this.insertBlock({
+        opcode: addition,
+        inputs: {
+          STRING1: left,
+          STRING2: right
+        }
+      })];
+    }
 
     if (Object.hasOwn(arithmetic, expr.operator)) {
       result = [2, this.insertBlock({
@@ -736,20 +808,24 @@ class Compiler {
     const bodyScope = scope.createChild();
     await this.parseASTBody(body, bodyScope);
 
-    // Use loop bindings for updates and conditions
-    const tailScope = scope.createChild();
-    tailScope.lastBlock = bodyScope.lastBlock;
+    const lastBlock = bodyScope.lastBlock && this.root.blocks[bodyScope.lastBlock];
 
-    if (update) {
-      await this.parseExpression(update, tailScope);
+    if (!lastBlock || lastBlock.opcode !== 'control_stop' || lastBlock.mutation?.hasnext !== false) {
+      // Use loop bindings for updates and conditions
+      const tailScope = scope.createChild();
+      tailScope.lastBlock = bodyScope.lastBlock;
+
+      if (update) {
+        await this.parseExpression(update, tailScope);
+      }
+
+      if (condition) {
+        const nextTest = await this.parseExpression(testExpression, tailScope, true);
+        this.write(condition, this.boolean(nextTest), tailScope);
+      }
+
+      bodyScope.firstBlock = bodyScope.firstBlock || tailScope.firstBlock;
     }
-
-    if (condition) {
-      const nextTest = await this.parseExpression(testExpression, tailScope, true);
-      this.write(condition, this.boolean(nextTest), tailScope);
-    }
-
-    bodyScope.firstBlock = bodyScope.firstBlock || tailScope.firstBlock;
 
     this.attachSubstack(loop, 'SUBSTACK', bodyScope);
     return loop;
@@ -864,7 +940,7 @@ class Compiler {
           ? await this.parseExpression(statement.value, scope, true)
           : [1, [10, '']] as ScratchInput;
         this.write(scope.frame.result, value, scope);
-        scope.frame.release(scope.frame.index(), scope);
+        scope.frame.release(scope);
         return this.append(scope, {
           opcode: 'control_stop',
           fields: {
@@ -982,52 +1058,61 @@ class Compiler {
     const name = expression.type === NodeType.FunctionDeclaration
       ? expression.name
       : `function_${uid.shortUid()}`;
-    const funcScope = scope.createChild(true);
-    funcScope.frame = this.needsFrame(expression.body) ? new CallFrame(this) : null;
-    const args = expression.params.map(parameter => `${parameter}@${funcScope.id}`);
-    const captures = scope.parameters;
-    const hidden = funcScope.frame ? [funcScope.frame.parameter] : [];
-    const parameters = [...args, ...hidden, ...captures];
-    const { definition, argumentIds, mutation } = this.createProcedure(
-      `${name}@${scope.id}`, parameters, expression.warp
-    );
-    funcScope.lastBlock = definition;
-    funcScope.parameters = parameters;
-    expression.params.forEach((parameter, i) => funcScope.defineParam(parameter, args[i]));
+    let create: FunctionBinding['create'];
     const binding: FunctionBinding = {
       kind: 'function',
       blockType: 'command',
-      args: args.map(() => 10),
-      procedure: {
-        frame: funcScope.frame,
-        captures
-      },
-      create: ({ inputs }) => ({
-        opcode: 'procedures_call',
-        inputs: Object.fromEntries(argumentIds.map((id, i) => [id, inputs[i]])),
-        mutation: {
-          argumentids: mutation.argumentids,
-          children: [],
-          proccode: mutation.proccode,
-          tagName: 'mutation',
-          warp: mutation.warp
+      args: expression.params.map(() => 10),
+      create: (args, compiler) => create(args, compiler),
+      compile: async () => {
+        const funcScope = scope.createChild(true);
+        funcScope.frame = this.needsFrame(expression.body) ? new CallFrame(this) : null;
+        const args = expression.params.map(parameter => `${parameter}@${funcScope.id}`);
+        const captures = scope.parameters;
+        const hidden = funcScope.frame ? [funcScope.frame.parameter] : [];
+        const parameters = [...args, ...hidden, ...captures];
+        const { definition, argumentIds, mutation } = this.createProcedure(
+          `${name}@${scope.id}`, parameters, expression.warp
+        );
+        funcScope.lastBlock = definition;
+        funcScope.parameters = parameters;
+        expression.params.forEach((parameter, i) => funcScope.defineParam(parameter, args[i]));
+        binding.procedure = {
+          frame: funcScope.frame,
+          captures
+        };
+        create = ({ inputs }) => ({
+          opcode: 'procedures_call',
+          inputs: Object.fromEntries(argumentIds.map((id, i) => [id, inputs[i]])),
+          mutation: {
+            argumentids: mutation.argumentids,
+            children: [],
+            proccode: mutation.proccode,
+            tagName: 'mutation',
+            warp: mutation.warp
+          }
+        });
+
+        if (funcScope.frame) {
+          this.write(funcScope.frame.result, [1, [10, '']], funcScope);
         }
-      })
+
+        await this.parseASTBody(expression.body.body, funcScope);
+
+        if (funcScope.frame) {
+          const lastBlock = this.root.blocks[funcScope.lastBlock];
+
+          if (lastBlock.opcode !== 'control_stop' || lastBlock.mutation?.hasnext !== false) {
+            funcScope.frame.release(funcScope);
+          }
+
+          funcScope.frame.finalize();
+        }
+      }
     };
 
     if (expression.type === NodeType.FunctionDeclaration) {
       scope.define(name, binding);
-    }
-
-    if (funcScope.frame) {
-      this.write(funcScope.frame.result, [1, [10, '']], funcScope);
-    }
-
-    await this.parseASTBody(expression.body.body, funcScope);
-
-    if (funcScope.frame) {
-      funcScope.frame.release(funcScope.frame.index(), funcScope);
-      funcScope.frame.compileAllocator();
     }
 
     return binding;
@@ -1035,7 +1120,14 @@ class Compiler {
 
   async parseASTBody (body: Statement[], scope: Scope) {
     for (const statement of body) {
+      const values = scope.temporaries.values;
+      const next = scope.temporaries.next;
       await this.parseStatement(statement, scope);
+      scope.temporaries.next = scope.temporaries.values === values ? next : 0;
+
+      if (statement.type === NodeType.ReturnStatement) {
+        break;
+      }
     }
   }
 
@@ -1107,6 +1199,7 @@ class Compiler {
   async compile (filePath: string) {
     await this.compileFile(path.resolve(filePath));
 
+    this.frameStorage?.compileAllocator();
     const reset = new Scope();
 
     for (const id of this._runtimeLists) {
@@ -1117,6 +1210,8 @@ class Compiler {
         }
       });
     }
+
+    this.frameStorage?.initialize(reset);
 
     if (reset.firstBlock) {
       const flag = this._startup.firstBlock;
