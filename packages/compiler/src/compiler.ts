@@ -44,10 +44,12 @@ class Compiler {
   stage: Sprite;
   root: Sprite;
   consoleList: string;
+  readyBroadcast: string;
   private _zip: JSZip;
   private _returnVar: string;
   private _exports: Record<string, Bindings>;
-  private _compiledFiles: Set<string>;
+  private _compiledFiles: Record<string, 'visiting' | 'done'>;
+  private _startup: Scope;
   private _currentFile: string | null;
   private _globals: Scope;
 
@@ -101,7 +103,10 @@ class Compiler {
     });
 
     this._exports = {};
-    this._compiledFiles = new Set();
+    this._compiledFiles = {};
+    this._startup = new Scope();
+    this.readyBroadcast = uid();
+    this.stage.broadcasts[this.readyBroadcast] = `$ready@${this.readyBroadcast}`;
     this._currentFile = null;
     this._globals = new Scope();
     Object.assign(this._globals.bindings, globals);
@@ -690,6 +695,10 @@ class Compiler {
         });
       }
       case NodeType.ImportStatement: {
+        if (scope.parent !== this._globals) {
+          throw new Error('Imports are only allowed at module scope.');
+        }
+
         let fileExports: Bindings;
         if (Object.hasOwn(extensions, statement.source)) {
           fileExports = extensions[statement.source];
@@ -705,11 +714,7 @@ class Compiler {
             this.extensions.push(statement.source);
           }
         } else {
-          const importPath = path.resolve(path.dirname(this._currentFile), statement.source);
-          const resolvedPath = importPath.endsWith('.claw') ? importPath : importPath + '.claw';
-          if (!this._compiledFiles.has(resolvedPath)) {
-            await this.compileFile(resolvedPath);
-          }
+          const resolvedPath = this.resolveImport(statement.source);
           fileExports = this._exports[resolvedPath];
           if (!fileExports) {
             throw new Error(`No exports found from "${statement.source}"`);
@@ -724,6 +729,10 @@ class Compiler {
         return scope.lastBlock;
       }
       case NodeType.ExportStatement: {
+        if (scope.parent !== this._globals) {
+          throw new Error('Exports are only allowed at module scope.');
+        }
+
         this._exports[this._currentFile] = this._exports[this._currentFile] || {};
         for (const name of statement.names) {
           const binding = scope.resolve(name);
@@ -822,46 +831,77 @@ class Compiler {
   }
 
   async parseASTBody (body: Statement[], scope: Scope) {
-    if (!scope.lastBlock) {
-      this.append(scope, {
-        opcode: 'event_whenflagclicked',
-        topLevel: true
-      });
-    }
-
     for (const statement of body) {
       await this.parseStatement(statement, scope);
     }
   }
 
-  async compileFile (filePath: string) {
-    const tokenizer = new Tokenizer();
-    const astBuilder = new ASTBuilder();
+  resolveImport (source: string) {
+    const importPath = path.resolve(path.dirname(this._currentFile), source);
+    const resolvedPath = importPath.endsWith('.claw') ? importPath : importPath + '.claw';
 
-    let scriptData;
+    return fs.realpathSync(resolvedPath);
+  }
+
+  async compileFile (filePath: string) {
+    let scriptData: string;
+
     try {
+      filePath = fs.realpathSync(filePath);
       scriptData = fs.readFileSync(filePath, { encoding: 'utf-8' });
     } catch {
       throw new Error(`Failed to load file: ${filePath}`);
     }
 
-    this._compiledFiles.add(filePath);
+    if (this._compiledFiles[filePath] === 'visiting') {
+      throw new Error(`Circular import involving "${filePath}".`);
+    }
+
+    if (this._compiledFiles[filePath] === 'done') {
+      return;
+    }
+
+    if (!this._startup.lastBlock) {
+      this.append(this._startup, {
+        opcode: 'event_whenflagclicked',
+        topLevel: true
+      });
+    }
+
+    this._compiledFiles[filePath] = 'visiting';
     const previousFile = this._currentFile;
     this._currentFile = filePath;
 
-    const tokens = tokenizer.tokenize(scriptData);
-    const ast = astBuilder.build(tokens);
+    try {
+      const tokens = new Tokenizer().tokenize(scriptData);
+      const ast = new ASTBuilder().build(tokens);
 
-    const fileScope = this._globals.createChild();
-    await this.parseASTBody(ast.body, fileScope);
+      for (const statement of ast.body) {
+        if (statement.type === NodeType.ImportStatement && !Object.hasOwn(extensions, statement.source)) {
+          await this.compileFile(this.resolveImport(statement.source));
+        }
+      }
 
-    this._currentFile = previousFile;
-    return fileScope;
+      const fileScope = this._globals.createChild();
+      fileScope.lastBlock = this._startup.lastBlock;
+      await this.parseASTBody(ast.body, fileScope);
+      this._startup.lastBlock = fileScope.lastBlock;
+      this._compiledFiles[filePath] = 'done';
+      return fileScope;
+    } finally {
+      this._currentFile = previousFile;
+    }
   }
 
   async compile (filePath: string) {
-    const resolvedPath = path.resolve(filePath);
-    await this.compileFile(resolvedPath);
+    await this.compileFile(path.resolve(filePath));
+
+    this.append(this._startup, {
+      opcode: 'event_broadcast',
+      inputs: {
+        BROADCAST_INPUT: [1, [11, this.stage.broadcasts[this.readyBroadcast], this.readyBroadcast]]
+      }
+    });
 
     const projectJSON = this.toJSON();
     const emptySVG = fs.readFileSync(

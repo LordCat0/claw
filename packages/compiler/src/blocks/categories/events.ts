@@ -6,8 +6,11 @@ export default {
       kind: 'function',
       blockType: 'hat',
       args: ['body'],
-      create: ({ bodies }) => ({
-        opcode: 'event_whenflagclicked',
+      create: ({ bodies }, compiler) => ({
+        opcode: 'event_whenbroadcastreceived',
+        fields: {
+          BROADCAST_OPTION: [compiler.stage.broadcasts[compiler.readyBroadcast], compiler.readyBroadcast]
+        },
         topLevel: true,
         next: bodies[0]
       })
