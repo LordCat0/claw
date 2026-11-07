@@ -621,15 +621,34 @@ class Compiler {
           throw new Error('This variable cannot be incremented or decremented.');
         }
 
-        return this.parseCall(binding.set, [{
-          type: NodeType.BinaryExpression,
-          operator: expression.operator === '++' ? '+' : '-',
-          left: expression.argument,
-          right: {
-            type: NodeType.NumberLiteral,
-            value: 1
-          }
-        }], scope);
+        if (expression.operator !== '++' && expression.operator !== '--') {
+          throw new Error(`Unsupported update operator "${expression.operator}".`);
+        }
+
+        let oldValue = this.read(binding);
+
+        if (asValue) {
+          oldValue = this.capture([2, this.insertBlock({
+            opcode: 'operator_add',
+            inputs: {
+              NUM1: oldValue,
+              NUM2: [1, [4, '0']]
+            }
+          })], scope);
+        }
+
+        this.append(scope, binding.set.create({
+          inputs: [[2, this.insertBlock({
+            opcode: expression.operator === '++' ? 'operator_add' : 'operator_subtract',
+            inputs: {
+              NUM1: oldValue,
+              NUM2: [1, [4, '1']]
+            }
+          })]],
+          fields: [],
+          bodies: []
+        }, this));
+        return asValue ? oldValue : scope.lastBlock;
       }
     }
   }
