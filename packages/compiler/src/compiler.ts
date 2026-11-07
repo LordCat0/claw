@@ -32,7 +32,8 @@ import {
   type FunctionBinding,
   type CallArguments,
   type FunctionDeclaration,
-  type FunctionExpression
+  type FunctionExpression,
+  type VariableBinding
 } from './types.ts';
 
 class Compiler {
@@ -165,6 +166,14 @@ class Compiler {
       this.root.blocks[parent].inputs[input] = [2, scope.firstBlock];
       this.root.blocks[scope.firstBlock].parent = parent;
     }
+  }
+
+  write (variable: VariableBinding, value: ScratchInput, scope: Scope) {
+    return this.append(scope, variable.set.create({
+      inputs: [value],
+      fields: [],
+      bodies: []
+    }, this));
   }
 
   async resolveBinding (
@@ -650,30 +659,23 @@ class Compiler {
             return scope.lastBlock;
           }
         }
+        const value = statement.init
+          ? await this.parseExpression(statement.init, scope, true)
+          : [1, [10, '']] as ScratchInput;
         const newVarId = uid();
-        const variable = scope.defineVariable(statement.name, newVarId, statement.constant);
-        this.root.variables[newVarId] = [variable.storage.name, ''];
-        if (statement.init) {
-          if (
-            statement.init.type === NodeType.StringLiteral ||
-            statement.init.type === NodeType.NumberLiteral ||
-            statement.init.type === NodeType.BooleanLiteral
-          ) {
-            this.root.variables[newVarId][1] = String(statement.init.value);
-            return scope.lastBlock;
-          }
-          const value = await this.parseExpression(statement.init, scope, true);
-          return this.append(scope, {
-            opcode: 'data_setvariableto',
-            fields: {
-              VARIABLE: [variable.storage.name, newVarId]
-            },
-            inputs: {
-              VALUE: value
-            }
-          });
+        const variable = scope.defineVariable(statement.name, newVarId);
+
+        if (variable.storage) {
+          this.root.variables[newVarId] = [variable.storage.name, ''];
         }
-        return scope.lastBlock;
+
+        const assignment = this.write(variable, value, scope);
+
+        if (statement.constant) {
+          delete variable.set;
+        }
+
+        return assignment;
       }
       case NodeType.ReturnStatement: {
         if (!scope.isFunction) {
