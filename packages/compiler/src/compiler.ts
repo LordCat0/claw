@@ -207,6 +207,10 @@ class Compiler {
     return this.read(variable);
   }
 
+  boolean (value: ScratchInput): ScratchInput {
+    return this.not(this.not(value));
+  }
+
   not (value: ScratchInput): ScratchInput {
     return [2, this.insertBlock({
       opcode: 'operator_not',
@@ -480,18 +484,35 @@ class Compiler {
       '>=': 'operator_lt'
     };
 
-    const logical: Record<string, string> = {
-      '&&': 'operator_and',
-      '||': 'operator_or'
-    };
-
     if (!Object.hasOwn(arithmetic, expr.operator) &&
         !Object.hasOwn(comparisons, expr.operator) &&
-        !Object.hasOwn(logical, expr.operator)) {
+        expr.operator !== '&&' && expr.operator !== '||') {
       throw new Error(`Unsupported binary operator "${expr.operator}".`);
     }
 
     let left = await this.parseExpression(expr.left, scope, true);
+
+    if (expr.operator === '&&' || expr.operator === '||') {
+      const result = this.temporary(scope);
+      this.write(result, this.boolean(left), scope);
+      let condition = this.read(result);
+
+      if (expr.operator === '||') {
+        condition = this.not(condition);
+      }
+
+      const branch = this.append(scope, {
+        opcode: 'control_if',
+        inputs: {
+          CONDITION: condition
+        }
+      });
+      const rightScope = scope.createChild();
+      const right = await this.parseExpression(expr.right, rightScope, true);
+      this.write(result, this.boolean(right), rightScope);
+      this.attachSubstack(branch, 'SUBSTACK', rightScope);
+      return this.read(result);
+    }
 
     let sum: VariableBinding;
 
@@ -564,7 +585,7 @@ class Compiler {
       })];
     } else {
       result = [2, this.insertBlock({
-        opcode: comparisons[expr.operator] || logical[expr.operator],
+        opcode: comparisons[expr.operator],
         inputs: {
           OPERAND1: left,
           OPERAND2: right
