@@ -493,21 +493,63 @@ class Compiler {
 
     let left = await this.parseExpression(expr.left, scope, true);
 
-    if (this.needsFrame(expr.right)) {
+    let sum: VariableBinding;
+
+    if (expr.operator === '+') {
+      sum = this.temporary(scope);
+      this.write(sum, left, scope);
+      left = this.read(sum);
+    } else if (this.needsFrame(expr.right)) {
       left = this.capture(left, scope);
     }
 
-    const right = await this.parseExpression(expr.right, scope, true);
+    let right = await this.parseExpression(expr.right, scope, true);
 
-    if (expr.operator === '+' &&
-        ((left[1] as number[])[0] === 10 || (right[1] as number[])[0] === 10)) {
-      return [2, this.insertBlock({
-        opcode: 'operator_join',
+    if (sum) {
+      right = this.capture(right, scope);
+      // Numeric strings add, other text concatenates
+      const numeric = [left, right].map(value => [2, this.insertBlock({
+        opcode: 'operator_equals',
         inputs: {
-          STRING1: left,
-          STRING2: right
+          OPERAND1: value,
+          OPERAND2: [2, this.insertBlock({
+            opcode: 'operator_add',
+            inputs: {
+              NUM1: value,
+              NUM2: [1, [4, 0]]
+            }
+          })]
         }
-      })];
+      })] as ScratchInput);
+      const branch = this.append(scope, {
+        opcode: 'control_if_else',
+        inputs: {
+          CONDITION: [2, this.insertBlock({
+            opcode: 'operator_and',
+            inputs: {
+              OPERAND1: numeric[0],
+              OPERAND2: numeric[1]
+            }
+          })]
+        }
+      });
+
+      for (const [substack, opcode, input] of [
+        ['SUBSTACK', 'operator_add', 'NUM'],
+        ['SUBSTACK2', 'operator_join', 'STRING']
+      ]) {
+        const branchScope = scope.createChild();
+        this.write(sum, [2, this.insertBlock({
+          opcode,
+          inputs: {
+            [input + '1']: left,
+            [input + '2']: right
+          }
+        })], branchScope);
+        this.attachSubstack(branch, substack, branchScope);
+      }
+
+      return this.read(sum);
     }
 
     let result: ScratchInput;
