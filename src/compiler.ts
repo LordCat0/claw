@@ -83,7 +83,7 @@ class Compiler {
       width: 350,
       height: 170,
       minimized: false,
-      text: `Project compiled by ${name} v${meta.version}`
+      text: `Project compiled by ${meta.name} v${meta.version}`
     };
 
     this._ids = {
