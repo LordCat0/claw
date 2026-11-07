@@ -91,7 +91,7 @@ class CallStorage {
     })];
     const choose = compiler.append(scope, {
       opcode: 'control_if_else',
-      inputs: { CONDITION: head }
+      inputs: { CONDITION: compiler.boolean(head) }
     });
     const reuse = new Scope();
     compiler.append(reuse, {

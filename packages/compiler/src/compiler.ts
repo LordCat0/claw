@@ -21,6 +21,7 @@ import {
   type Statement,
   type Block,
   type Expression,
+  type Literal,
   type BinaryExpression,
   type ConditionalExpression,
   type UnaryExpression,
@@ -61,6 +62,9 @@ class Compiler {
   private _currentFile: string | null;
   private _globals: Scope;
   private _capturedInputs: Record<string, boolean>;
+  private _falsyList: [string, string] | null;
+  private _writes: Record<string, boolean>;
+  private _booleanInputs: Record<string, boolean>;
 
   constructor () {
     this.targets = [];
@@ -119,6 +123,9 @@ class Compiler {
     this._currentFile = null;
     this._globals = new Scope();
     this._capturedInputs = {};
+    this._falsyList = null;
+    this._writes = {};
+    this._booleanInputs = {};
     Object.assign(this._globals.bindings, globals);
   }
 
@@ -175,7 +182,7 @@ class Compiler {
   }
 
   attachSubstack (parent: string, input: string, scope: Scope) {
-    this.root.blocks[parent].inputs[input] = [2];
+    this.root.blocks[parent].inputs[input] = [2, null];
 
     if (scope.firstBlock) {
       this.root.blocks[parent].inputs[input] = [2, scope.firstBlock];
@@ -188,6 +195,7 @@ class Compiler {
     let variable = scope.temporaries.values[index];
 
     if (variable) {
+      variable.boolean = undefined;
       return variable;
     }
 
@@ -215,10 +223,18 @@ class Compiler {
       this._capturedInputs[id] = true;
     }
 
+    if (variable.boolean) {
+      this._booleanInputs[id] = true;
+    }
+
     return [2, id];
   }
 
   write (variable: VariableBinding, value: ScratchInput, scope: Scope) {
+    if (variable.temporary) {
+      variable.boolean = variable.boolean !== false && this.isBoolean(value);
+    }
+
     return this.append(scope, variable.set.create({
       inputs: [value],
       fields: [],
@@ -240,8 +256,72 @@ class Compiler {
     return this.read(variable);
   }
 
+  isBoolean (value: ScratchInput): boolean {
+    if (value[0] !== 2) {
+      return false;
+    }
+
+    const id = value[1] as string;
+
+    return this._booleanInputs[id] || [
+      'operator_lt',
+      'operator_gt',
+      'operator_equals',
+      'operator_and',
+      'operator_or',
+      'operator_not',
+      'operator_contains',
+      'data_listcontainsitem',
+      'sensing_touchingobject',
+      'sensing_touchingcolor',
+      'sensing_coloristouchingcolor',
+      'sensing_keypressed',
+      'sensing_mousedown',
+      'sensing_loud'
+    ].includes(this.root.blocks[id].opcode);
+  }
+
   boolean (value: ScratchInput): ScratchInput {
-    return this.not(this.not(value));
+    if (value[0] === 1 && Array.isArray(value[1])) {
+      return this.booleanLiteral(this.truthy(value[1][1] as Literal['value']));
+    }
+
+    if (value[0] === 2 && this._booleanInputs[value[1] as string]) {
+      return [2, this.insertBlock({
+        opcode: 'operator_equals',
+        inputs: {
+          OPERAND1: value,
+          OPERAND2: [1, [10, 'true']]
+        }
+      })];
+    }
+
+    if (this.isBoolean(value)) {
+      return value;
+    }
+
+    if (!this._falsyList) {
+      const id = uid();
+      this._falsyList = [`$falsy@${id}`, id];
+      this.stage.lists[id] = [this._falsyList[0], ['#', '#0', '#false']];
+    }
+
+    // The prefix makes zero strings compare as text
+    return this.not([2, this.insertBlock({
+      opcode: 'data_listcontainsitem',
+      fields: {
+        LIST: this._falsyList
+      },
+      inputs: {
+        ITEM: [2, this.insertBlock({
+          opcode: 'operator_join',
+          inputs: {
+            STRING1: [1, [10, '#']],
+            STRING2: value
+          }
+        })]
+      }
+    })]);
   }
 
   not (value: ScratchInput): ScratchInput {
@@ -251,6 +331,62 @@ class Compiler {
         OPERAND: value
       }
     })];
+  }
+
+  booleanLiteral (value: boolean): ScratchInput {
+    return [2, this.insertBlock({
+      opcode: 'operator_not',
+      inputs: value ? {} : {
+        OPERAND: [2, this.insertBlock({ opcode: 'operator_not' })]
+      }
+    })];
+  }
+
+  constantValue (expression: Expression, scope: Scope): Literal | null {
+    if (expression.type === NodeType.NumberLiteral ||
+        expression.type === NodeType.StringLiteral ||
+        expression.type === NodeType.BooleanLiteral) {
+      return expression;
+    }
+
+    // shortcut: function reads stay dynamic, track initialization before folding captures
+    if (expression.type === NodeType.Identifier && !scope.isFunction) {
+      const binding = scope.resolve(expression.name);
+      return binding?.kind === 'variable' ? binding.constantValue || null : null;
+    }
+
+    return null;
+  }
+
+  truthy (value: Literal['value']): boolean {
+    return Boolean(value) && value !== '0' && String(value).toLowerCase() !== 'false';
+  }
+
+  scanWrites (node: Statement | Expression | Block) {
+    if (node.type === NodeType.Assignment && node.target.type === NodeType.Identifier) {
+      const value = node.value;
+      const boolean = value.type === NodeType.BooleanLiteral ||
+        (value.type === NodeType.UnaryExpression && value.operator === '!') ||
+        (value.type === NodeType.BinaryExpression &&
+          ['==', '!=', '<', '>', '<=', '>=', '&&', '||'].includes(value.operator));
+      this._writes[node.target.name] = this._writes[node.target.name] !== false && boolean;
+    }
+
+    if (node.type === NodeType.UpdateExpression && node.argument.type === NodeType.Identifier) {
+      this._writes[node.argument.name] = false;
+    }
+
+    if (node.type === NodeType.ExportStatement) {
+      for (const name of node.names) {
+        this._writes[name] = false;
+      }
+    }
+
+    for (const value of Object.values(node).flat()) {
+      if (value && typeof value === 'object') {
+        this.scanWrites(value);
+      }
+    }
   }
 
   additionOpcode (expression: BinaryExpression) {
@@ -509,7 +645,21 @@ class Compiler {
       return [2, this.insertBlock(block)];
     }
 
-    this.append(scope, block);
+    if (block.opcode === 'control_delete_this_clone' ||
+        (block.opcode === 'control_stop' && block.mutation.hasnext === false)) {
+      // End blocks need a branch so later commands can connect
+      const branch = this.append(scope, {
+        opcode: 'control_if',
+        inputs: {
+          CONDITION: [2, this.insertBlock({ opcode: 'operator_not' })]
+        }
+      });
+      const body = scope.createChild();
+      this.append(body, block);
+      this.attachSubstack(branch, 'SUBSTACK', body);
+    } else {
+      this.append(scope, block);
+    }
 
     if (procedure?.frame && asValue) {
       return this.capture(procedure.frame.readResult(frameIndex), scope);
@@ -569,7 +719,7 @@ class Compiler {
     if (expr.operator === '&&' || expr.operator === '||') {
       const result = this.temporary(scope);
       this.write(result, this.boolean(left), scope);
-      let condition = this.read(result);
+      let condition = this.boolean(this.read(result));
 
       if (expr.operator === '||') {
         condition = this.not(condition);
@@ -690,8 +840,10 @@ class Compiler {
     scope: Scope,
     asValue: boolean
   ): Promise<ScratchInput> {
-    if (expression.test.type === NodeType.BooleanLiteral) {
-      const selected = expression.test.value ? expression.consequent : expression.alternate;
+    const constant = this.constantValue(expression.test, scope);
+
+    if (constant) {
+      const selected = this.truthy(constant.value) ? expression.consequent : expression.alternate;
       return this.parseExpression(selected, scope, asValue);
     }
 
@@ -700,7 +852,7 @@ class Compiler {
     const branch = this.append(scope, {
       opcode: 'control_if_else',
       inputs: {
-        CONDITION: test
+        CONDITION: this.boolean(test)
       }
     });
 
@@ -737,12 +889,7 @@ class Compiler {
     const value = await this.parseExpression(expr.value, scope, true);
 
     if (expr.operator === '!') {
-      return [2, this.insertBlock({
-        opcode: 'operator_not',
-        inputs: {
-          OPERAND: value
-        }
-      })];
+      return this.not(this.boolean(value));
     } else if (expr.operator === '-') {
       return [2, this.insertBlock({
         opcode: 'operator_subtract',
@@ -759,6 +906,12 @@ class Compiler {
     scope: Scope,
     asValue = false
   ): Promise<ScratchInput> {
+    const constant = this.constantValue(expression, scope);
+
+    if (constant && constant !== expression) {
+      return this.parseExpression(constant, scope, asValue);
+    }
+
     switch (expression.type) {
       case NodeType.CallExpression: {
         const binding = await this.resolveBinding(expression.callee, scope);
@@ -785,15 +938,7 @@ class Compiler {
         return [1, [5, String(expression.value)]];
       }
       case NodeType.BooleanLiteral: {
-        const block1 = this.insertBlock({
-          opcode: 'operator_not',
-          inputs: expression.value ? {} : {
-            OPERAND: [2, this.insertBlock({
-              opcode: 'operator_not'
-            })]
-          }
-        });
-        return [2, block1];
+        return this.booleanLiteral(expression.value);
       }
       case NodeType.MemberExpression:
       case NodeType.FunctionExpression:
@@ -804,7 +949,13 @@ class Compiler {
           throw new Error('Expected a variable.');
         }
 
-        return this.parseCall(binding.get, [], scope, true);
+        const value = await this.parseCall(binding.get, [], scope, true);
+
+        if (binding.boolean) {
+          this._booleanInputs[value[1] as string] = true;
+        }
+
+        return value;
       }
       case NodeType.UpdateExpression: {
         const binding = await this.resolveBinding(expression.argument, scope);
@@ -881,7 +1032,7 @@ class Compiler {
         opcode: 'control_repeat',
         inputs: {
           TIMES: count,
-          SUBSTACK: [2]
+          SUBSTACK: [2, null]
         }
       });
       const firstBody = await this.parseSubstack(body, scope, loop);
@@ -924,12 +1075,12 @@ class Compiler {
       })];
     } else {
       testExpression = statement.test;
-      test = await this.parseExpression(testExpression, scope, true);
+      test = this.boolean(await this.parseExpression(testExpression, scope, true));
 
       if (scope.lastBlock !== previous) {
         condition = this.temporary(scope);
-        this.write(condition, this.boolean(test), scope);
-        test = this.read(condition);
+        this.write(condition, test, scope);
+        test = this.boolean(this.read(condition));
       }
     }
 
@@ -1047,8 +1198,8 @@ class Compiler {
         const ifId = this.append(scope, {
           opcode: hasElse ? 'control_if_else' : 'control_if',
           inputs: {
-            CONDITION: test,
-            SUBSTACK: [2]
+            CONDITION: this.boolean(test),
+            SUBSTACK: [2, null]
           }
         });
         const firstCons = await this.parseSubstack(statement.consequent.body, scope, ifId);
@@ -1088,6 +1239,11 @@ class Compiler {
           : [1, [10, '']] as ScratchInput;
         const newVarId = uid();
         const variable = scope.defineVariable(statement.name, newVarId);
+        variable.boolean = this._writes[statement.name] !== false && this.isBoolean(value);
+
+        if (!Object.hasOwn(this._writes, statement.name) && statement.init) {
+          variable.constantValue = this.constantValue(statement.init, scope) || undefined;
+        }
 
         if (variable.storage) {
           this.root.variables[newVarId] = [variable.storage.name, ''];
@@ -1371,6 +1527,7 @@ class Compiler {
     try {
       const tokens = new Tokenizer().tokenize(scriptData);
       const ast = new ASTBuilder().build(tokens);
+      ast.body.forEach(statement => this.scanWrites(statement));
 
       for (const statement of ast.body) {
         if (statement.type === NodeType.ImportStatement && !Object.hasOwn(extensions, statement.source)) {

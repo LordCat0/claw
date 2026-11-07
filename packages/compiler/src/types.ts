@@ -111,6 +111,8 @@ export type Expression =
   | BooleanLiteral
   | Identifier;
 
+export type Literal = NumberLiteral | StringLiteral | BooleanLiteral;
+
 export interface Program {
   type: NodeType.Program;
   body: Statement[];
@@ -268,7 +270,7 @@ export interface Identifier {
 
 type ScratchValue = string | number | boolean | null | ScratchValue[];
 
-export type ScratchInput = string | [number, ...ScratchValue[]];
+export type ScratchInput = string | [number, ScratchValue, ...ScratchValue[]];
 
 export interface Mutation {
   tagName: string;
@@ -373,6 +375,8 @@ export interface FunctionBinding {
 export interface VariableBinding {
   kind: 'variable';
   temporary?: boolean;
+  boolean?: boolean;
+  constantValue?: Literal;
   get: FunctionBinding;
   set?: FunctionBinding;
   storage?: {
