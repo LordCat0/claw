@@ -87,14 +87,18 @@ class ASTBuilder {
           return this.parseRepeat();
         case Keyword.for:
           return this.parseFor();
-        case Keyword.break:
+        case Keyword.break: {
+          this.advance()
+          this.expect(TokenType.SEMICOLON)
+          return {
+            type: NodeType.BreakStatement
+          }
+        }
         case Keyword.continue: {
           this.advance()
           this.expect(TokenType.SEMICOLON)
           return {
-            type: token.value === Keyword.break
-              ? NodeType.BreakStatement
-              : NodeType.ContinueStatement
+            type: NodeType.ContinueStatement
           }
         }
         case Keyword.function:
