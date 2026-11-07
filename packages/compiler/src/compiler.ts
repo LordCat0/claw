@@ -716,6 +716,50 @@ class Compiler {
     }
   }
 
+  async parseLoop (
+    testExpression: Expression,
+    body: Statement[],
+    scope: Scope,
+    update?: Expression
+  ) {
+    const previous = scope.lastBlock;
+    let test = await this.parseExpression(testExpression, scope, true);
+    let condition: VariableBinding;
+
+    if (scope.lastBlock !== previous) {
+      condition = this.temporary(scope);
+      this.write(condition, this.boolean(test), scope);
+      test = this.read(condition);
+    }
+
+    const loop = this.append(scope, {
+      opcode: 'control_while',
+      inputs: {
+        CONDITION: test
+      }
+    });
+    const bodyScope = scope.createChild();
+    await this.parseASTBody(body, bodyScope);
+
+    // Use loop bindings for updates and conditions
+    const tailScope = scope.createChild();
+    tailScope.lastBlock = bodyScope.lastBlock;
+
+    if (update) {
+      await this.parseExpression(update, tailScope);
+    }
+
+    if (condition) {
+      const nextTest = await this.parseExpression(testExpression, tailScope, true);
+      this.write(condition, this.boolean(nextTest), tailScope);
+    }
+
+    bodyScope.firstBlock = bodyScope.firstBlock || tailScope.firstBlock;
+
+    this.attachSubstack(loop, 'SUBSTACK', bodyScope);
+    return loop;
+  }
+
   async parseStatement (statement: Statement, scope: Scope): Promise<ScratchInput> {
     switch (statement.type) {
       case NodeType.Assignment: {
@@ -737,19 +781,7 @@ class Compiler {
         return scope.lastBlock;
       }
       case NodeType.WhileStatement: {
-        const test = await this.parseExpression(statement.test, scope, true);
-        const whileId = this.append(scope, {
-          opcode: 'control_while',
-          inputs: {
-            CONDITION: test,
-            SUBSTACK: [2]
-          }
-        });
-        const firstBody = await this.parseSubstack(statement.body.body, scope, whileId);
-        if (firstBody) {
-          this.root.blocks[whileId].inputs.SUBSTACK = [2, firstBody];
-        }
-        return whileId;
+        return this.parseLoop(statement.test, statement.body.body, scope);
       }
       case NodeType.IfStatement: {
         const test = await this.parseExpression(statement.test, scope, true);
@@ -792,29 +824,15 @@ class Compiler {
         return repeatId;
       }
       case NodeType.ForStatement: {
-        scope.lastBlock = await this.parseStatement(statement.init, scope) as string;
-
-        const test = await this.parseExpression(statement.test, scope, true);
-        const whileId = this.append(scope, {
-          opcode: 'control_while',
-          inputs: {
-            CONDITION: test,
-            SUBSTACK: [2]
-          }
-        });
-
-        const bodyWithUpdate: Statement[] = [
-          ...statement.body.body,
-          {
-            type: NodeType.ExpressionStatement,
-            expression: statement.update
-          }
-        ];
-        const firstBody = await this.parseSubstack(bodyWithUpdate, scope, whileId);
-        if (firstBody) {
-          this.root.blocks[whileId].inputs.SUBSTACK = [2, firstBody];
-        }
-        return whileId;
+        const forScope = scope.createChild();
+        forScope.lastBlock = scope.lastBlock;
+        await this.parseStatement(statement.init, forScope);
+        const loop = await this.parseLoop(
+          statement.test, statement.body.body, forScope, statement.update
+        );
+        scope.firstBlock = scope.firstBlock || forScope.firstBlock;
+        scope.lastBlock = loop;
+        return loop;
       }
       case NodeType.VarDeclaration: {
         if (statement.init) {
