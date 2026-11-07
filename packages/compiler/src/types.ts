@@ -1,3 +1,4 @@
+import type CallFrame from './util/call-frame.ts';
 import type Compiler from './compiler.ts';
 
 // Tokens
@@ -338,7 +339,10 @@ export interface FunctionBinding {
   blockType: 'command' | 'reporter' | 'hat';
   args: FunctionArgument[];
   create: (args: CallArguments, compiler: Compiler) => BlockOptions;
-  returnValue?: ScratchInput;
+  procedure?: {
+    frame: CallFrame | null;
+    captures: string[];
+  };
 }
 
 export interface VariableBinding {

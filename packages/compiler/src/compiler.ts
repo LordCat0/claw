@@ -9,6 +9,7 @@ import {
 } from './util/project-util.ts';
 import uid from './util/uid.ts';
 import Scope from './util/scope.ts';
+import CallFrame from './util/call-frame.ts';
 import {
   globals,
   extensions
@@ -17,6 +18,7 @@ import meta from '../package.json' with { type: 'json' };
 import {
   NodeType,
   type Statement,
+  type Block,
   type Expression,
   type BinaryExpression,
   type UnaryExpression,
@@ -46,10 +48,10 @@ class Compiler {
   consoleList: string;
   readyBroadcast: string;
   private _zip: JSZip;
-  private _returnVar: string;
   private _exports: Record<string, Bindings>;
   private _compiledFiles: Record<string, 'visiting' | 'done'>;
   private _startup: Scope;
+  private _runtimeLists: string[];
   private _currentFile: string | null;
   private _globals: Scope;
 
@@ -84,10 +86,8 @@ class Compiler {
     };
 
     this.consoleList = uid();
-    this._returnVar = uid();
 
     this.stage.lists[this.consoleList] = ['console', []];
-    this.stage.variables[this._returnVar] = ['$', ''];
 
     this.monitors.push({
       id: this.consoleList,
@@ -105,6 +105,7 @@ class Compiler {
     this._exports = {};
     this._compiledFiles = {};
     this._startup = new Scope();
+    this._runtimeLists = [];
     this.readyBroadcast = uid();
     this.stage.broadcasts[this.readyBroadcast] = `$ready@${this.readyBroadcast}`;
     this._currentFile = null;
@@ -173,12 +174,37 @@ class Compiler {
     }
   }
 
+  temporary (scope: Scope): VariableBinding {
+    if (scope.frame) {
+      return scope.frame.variable();
+    }
+
+    const id = uid();
+    const variable = new Scope().defineVariable('$temporary', id);
+    this.root.variables[id] = [variable.storage.name, ''];
+    return variable;
+  }
+
+  read (variable: VariableBinding): ScratchInput {
+    return [2, this.insertBlock(variable.get.create({
+      inputs: [],
+      fields: [],
+      bodies: []
+    }, this))];
+  }
+
   write (variable: VariableBinding, value: ScratchInput, scope: Scope) {
     return this.append(scope, variable.set.create({
       inputs: [value],
       fields: [],
       bodies: []
     }, this));
+  }
+
+  capture (value: ScratchInput, scope: Scope): ScratchInput {
+    const variable = this.temporary(scope);
+    this.write(variable, value, scope);
+    return this.read(variable);
   }
 
   not (value: ScratchInput): ScratchInput {
@@ -188,6 +214,33 @@ class Compiler {
         OPERAND: value
       }
     })];
+  }
+
+  needsFrame (node: Statement | Expression | Block): boolean {
+    if (node.type === NodeType.FunctionDeclaration || node.type === NodeType.FunctionExpression) {
+      return false;
+    }
+
+    if (node.type === NodeType.ExpressionStatement && node.expression.type === NodeType.CallExpression) {
+      return node.expression.arguments.some(argument => this.needsFrame(argument));
+    }
+
+    if (node.type === NodeType.VarDeclaration || node.type === NodeType.ReturnStatement ||
+        node.type === NodeType.CallExpression || node.type === NodeType.UpdateExpression) {
+      return true;
+    }
+
+    if (node.type === NodeType.BinaryExpression && ['+', '&&', '||'].includes(node.operator)) {
+      return true;
+    }
+
+    return Object.values(node).some(value => {
+      if (Array.isArray(value)) {
+        return value.some(child => child && typeof child === 'object' && this.needsFrame(child));
+      }
+
+      return value && typeof value === 'object' && this.needsFrame(value);
+    });
   }
 
   async resolveBinding (
@@ -229,6 +282,10 @@ class Compiler {
     scope: Scope,
     asValue = false
   ): Promise<ScratchInput> {
+    if (definition.blockType === 'hat' && scope.isFunction) {
+      throw new Error('Event handlers must be declared outside functions.');
+    }
+
     if (expressions.length !== definition.args.length) {
       throw new Error(
         `Function expects ${definition.args.length} arguments, ` +
@@ -236,7 +293,7 @@ class Compiler {
       );
     }
 
-    if (asValue && definition.blockType !== 'reporter' && !definition.returnValue) {
+    if (asValue && definition.blockType !== 'reporter' && !definition.procedure) {
       throw new Error('This function does not return a value.');
     }
 
@@ -269,6 +326,10 @@ class Compiler {
           args.inputs[i] = [1, [argument, String(expression.value)]];
         } else {
           args.inputs[i] = await this.parseExpression(expression, scope, true);
+
+          if (definition.procedure?.frame && this.needsFrame(expression)) {
+            args.inputs[i] = this.capture(args.inputs[i], scope);
+          }
         }
 
         continue;
@@ -313,7 +374,7 @@ class Compiler {
           }
 
           if (argument === 'writableVariable' && !resolved.set) {
-            throw new Error(`"${name}" cannot be set.`);
+            throw new Error('This variable cannot be set.');
           }
 
           args.fields[i] = [resolved.storage.name, resolved.storage.id];
@@ -337,6 +398,25 @@ class Compiler {
       }
     }
 
+    let frameIndex: ScratchInput;
+    const procedure = definition.procedure;
+
+    if (procedure?.frame) {
+      frameIndex = procedure.frame.allocate(scope, asValue);
+      args.inputs.push(frameIndex);
+    }
+
+    if (procedure) {
+      for (const name of procedure.captures) {
+        args.inputs.push([2, this.insertBlock({
+          opcode: 'argument_reporter_string_number',
+          fields: {
+            VALUE: [name, null]
+          }
+        })]);
+      }
+    }
+
     const block = definition.create(args, this);
 
     if (definition.blockType === 'hat') {
@@ -350,8 +430,12 @@ class Compiler {
 
     this.append(scope, block);
 
-    if (asValue && definition.returnValue) {
-      return definition.returnValue;
+    if (procedure?.frame && asValue) {
+      return this.capture(procedure.frame.readResult(frameIndex), scope);
+    }
+
+    if (asValue && procedure) {
+      return [1, [10, '']];
     }
 
     return scope.lastBlock;
@@ -670,18 +754,12 @@ class Compiler {
         if (!scope.isFunction) {
           throw new Error('Return statements can only be used inside of functions.');
         }
+
         const value = statement.value
           ? await this.parseExpression(statement.value, scope, true)
           : [1, [10, '']] as ScratchInput;
-        const block1 = this.append(scope, {
-          opcode: 'data_setvariableto',
-          fields: {
-            VARIABLE: ['$', this._returnVar]
-          },
-          inputs: {
-            VALUE: value
-          }
-        });
+        this.write(scope.frame.result, value, scope);
+        scope.frame.release(scope.frame.index(), scope);
         return this.append(scope, {
           opcode: 'control_stop',
           fields: {
@@ -750,23 +828,16 @@ class Compiler {
     }
   }
 
-  async parseFunction (
-    expression: FunctionDeclaration | FunctionExpression,
-    scope: Scope
-  ): Promise<FunctionBinding> {
-    const name = expression.type === NodeType.FunctionDeclaration
-      ? expression.name
-      : `function_${uid.shortUid()}`;
-    const args = expression.params;
+  createProcedure (name: string, args: string[], warp: boolean) {
     const argumentIds = args.map(() => uid());
     const mutation: Mutation = {
-      argumentdefaults: JSON.stringify(args.map(() => '""')),
+      argumentdefaults: JSON.stringify(args.map(() => '')),
       argumentids: JSON.stringify(argumentIds),
       argumentnames: JSON.stringify(args),
       children: [],
-      proccode: name + args.map(() => ' %s').join('') + `@${scope.id}`,
+      proccode: name + args.map(() => ' %s').join(''),
       tagName: 'mutation',
-      warp: expression.warp
+      warp
     };
     const procedurePrototype = this.insertBlock({
       opcode: 'procedures_prototype',
@@ -792,14 +863,40 @@ class Compiler {
         custom_block: [1, procedurePrototype]
       }
     });
+    return {
+      definition,
+      argumentIds,
+      mutation
+    };
+  }
+
+  async parseFunction (
+    expression: FunctionDeclaration | FunctionExpression,
+    scope: Scope
+  ): Promise<FunctionBinding> {
+    const name = expression.type === NodeType.FunctionDeclaration
+      ? expression.name
+      : `function_${uid.shortUid()}`;
     const funcScope = scope.createChild(true);
+    funcScope.frame = this.needsFrame(expression.body) ? new CallFrame(this) : null;
+    const args = expression.params.map(parameter => `${parameter}@${funcScope.id}`);
+    const captures = scope.parameters;
+    const hidden = funcScope.frame ? [funcScope.frame.parameter] : [];
+    const parameters = [...args, ...hidden, ...captures];
+    const { definition, argumentIds, mutation } = this.createProcedure(
+      `${name}@${scope.id}`, parameters, expression.warp
+    );
     funcScope.lastBlock = definition;
-    args.forEach(p => funcScope.defineParam(p));
+    funcScope.parameters = parameters;
+    expression.params.forEach((parameter, i) => funcScope.defineParam(parameter, args[i]));
     const binding: FunctionBinding = {
       kind: 'function',
       blockType: 'command',
       args: args.map(() => 10),
-      returnValue: [3, [12, '$', this._returnVar], [10, '']],
+      procedure: {
+        frame: funcScope.frame,
+        captures
+      },
       create: ({ inputs }) => ({
         opcode: 'procedures_call',
         inputs: Object.fromEntries(argumentIds.map((id, i) => [id, inputs[i]])),
@@ -817,16 +914,17 @@ class Compiler {
       scope.define(name, binding);
     }
 
+    if (funcScope.frame) {
+      this.write(funcScope.frame.result, [1, [10, '']], funcScope);
+    }
+
     await this.parseASTBody(expression.body.body, funcScope);
-    this.append(funcScope, {
-      opcode: 'data_setvariableto',
-      fields: {
-        VARIABLE: ['$', this._returnVar]
-      },
-      inputs: {
-        VALUE: [1, [10, '']]
-      }
-    });
+
+    if (funcScope.frame) {
+      funcScope.frame.release(funcScope.frame.index(), funcScope);
+      funcScope.frame.compileAllocator();
+    }
+
     return binding;
   }
 
@@ -834,6 +932,14 @@ class Compiler {
     for (const statement of body) {
       await this.parseStatement(statement, scope);
     }
+  }
+
+  runtimeList (name: string) {
+    const id = uid();
+    const list: [string, string] = [`${name}@${id}`, id];
+    this.stage.lists[id] = [list[0], []];
+    this._runtimeLists.push(id);
+    return list;
   }
 
   resolveImport (source: string) {
@@ -895,6 +1001,31 @@ class Compiler {
 
   async compile (filePath: string) {
     await this.compileFile(path.resolve(filePath));
+
+    const reset = new Scope();
+
+    for (const id of this._runtimeLists) {
+      this.append(reset, {
+        opcode: 'data_deletealloflist',
+        fields: {
+          LIST: [this.stage.lists[id][0], id]
+        }
+      });
+    }
+
+    if (reset.firstBlock) {
+      const flag = this._startup.firstBlock;
+      const next = this.root.blocks[flag].next;
+      this.root.blocks[flag].next = reset.firstBlock;
+      this.root.blocks[reset.firstBlock].parent = flag;
+      this.root.blocks[reset.lastBlock].next = next;
+
+      if (next) {
+        this.root.blocks[next].parent = reset.lastBlock;
+      } else {
+        this._startup.lastBlock = reset.lastBlock;
+      }
+    }
 
     this.append(this._startup, {
       opcode: 'event_broadcast',

@@ -1,4 +1,5 @@
 import uid from './uid.ts';
+import type CallFrame from './call-frame.ts';
 import type {
   Binding,
   Bindings,
@@ -12,6 +13,8 @@ class Scope {
   bindings: Bindings;
   firstBlock: string | null;
   lastBlock: string | null;
+  frame: CallFrame | null;
+  parameters: string[];
 
   constructor (parent: Scope | null = null, isFunction = false) {
     this.parent = parent;
@@ -20,6 +23,8 @@ class Scope {
     this.bindings = {};
     this.firstBlock = null;
     this.lastBlock = null;
+    this.frame = parent?.frame || null;
+    this.parameters = parent?.parameters || [];
   }
 
   define (name: string, binding: Binding) {
@@ -31,6 +36,17 @@ class Scope {
   }
 
   defineVariable (name: string, id: string, constant = false) {
+    if (this.isFunction) {
+      const variable = this.frame.variable();
+      this.define(name, variable);
+
+      if (constant) {
+        delete variable.set;
+      }
+
+      return variable;
+    }
+
     const storage = {
       name: `${name}@${this.id}`,
       id
@@ -72,7 +88,7 @@ class Scope {
     return variable;
   }
 
-  defineParam (name: string) {
+  defineParam (name: string, parameter = name) {
     this.define(name, {
       kind: 'variable',
       get: {
@@ -82,7 +98,7 @@ class Scope {
         create: () => ({
           opcode: 'argument_reporter_string_number',
           fields: {
-            VALUE: [name, null]
+            VALUE: [parameter, null]
           }
         })
       }
