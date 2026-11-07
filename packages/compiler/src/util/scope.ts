@@ -10,6 +10,7 @@ class Scope {
   isFunction: boolean;
   id: string;
   bindings: Bindings;
+  firstBlock: string | null;
   lastBlock: string | null;
 
   constructor (parent: Scope | null = null, isFunction = false) {
@@ -17,6 +18,7 @@ class Scope {
     this.isFunction = isFunction;
     this.id = uid.shortUid();
     this.bindings = {};
+    this.firstBlock = null;
     this.lastBlock = null;
   }
 

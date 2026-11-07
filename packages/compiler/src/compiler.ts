@@ -119,11 +119,26 @@ class Compiler {
       this.root.blocks[id] = newBlock(blockInfo);
     }
 
-    for (const input of Object.values(this.root.blocks[id].inputs)) {
+    for (const [name, input] of Object.entries(this.root.blocks[id].inputs)) {
       if (Array.isArray(input)) {
-        for (const value of input.slice(1)) {
+        const attached: typeof input = [...input];
+        this.root.blocks[id].inputs[name] = attached;
+
+        for (let i = 1; i < attached.length; i++) {
+          const value = attached[i];
+
           if (typeof value === 'string' && this.root.blocks[value]) {
-            this.root.blocks[value].parent = id;
+            let child = value;
+
+            if (this.root.blocks[child].parent) {
+              child = this.insertBlock({
+                ...this.root.blocks[child],
+                parent: null
+              });
+            }
+
+            attached[i] = child;
+            this.root.blocks[child].parent = id;
           }
         }
       }
@@ -134,6 +149,22 @@ class Compiler {
     }
 
     return id;
+  }
+
+  append (scope: Scope, block: BlockOptions) {
+    const id = this.insertBlock(block, scope.lastBlock);
+    scope.firstBlock = scope.firstBlock || id;
+    scope.lastBlock = id;
+    return id;
+  }
+
+  attachSubstack (parent: string, input: string, scope: Scope) {
+    this.root.blocks[parent].inputs[input] = [2];
+
+    if (scope.firstBlock) {
+      this.root.blocks[parent].inputs[input] = [2, scope.firstBlock];
+      this.root.blocks[scope.firstBlock].parent = parent;
+    }
   }
 
   async resolveBinding (
@@ -232,7 +263,9 @@ class Compiler {
           throw new Error('Block bodies require a function without parameters.');
         }
 
-        args.bodies[i] = await this.parseCall(callback, [], scope.createChild()) as string;
+        const bodyScope = scope.createChild();
+        await this.parseCall(callback, [], bodyScope);
+        args.bodies[i] = bodyScope.firstBlock;
         continue;
       }
 
@@ -282,24 +315,23 @@ class Compiler {
     }
 
     const block = definition.create(args, this);
-    const previous = definition.blockType === 'command' ? scope.lastBlock : null;
-    const id = this.insertBlock(block, previous);
 
     if (definition.blockType === 'hat') {
+      this.insertBlock(block);
       return scope.lastBlock;
     }
 
     if (definition.blockType === 'reporter') {
-      return [2, id];
+      return [2, this.insertBlock(block)];
     }
 
-    scope.lastBlock = id;
+    this.append(scope, block);
 
     if (asValue && definition.returnValue) {
       return definition.returnValue;
     }
 
-    return id;
+    return scope.lastBlock;
   }
 
   async parseSubstack (
@@ -309,20 +341,15 @@ class Compiler {
   ) {
     const childScope = parentScope.createChild();
     childScope.lastBlock = null;
-    let firstBlock = null;
-
     for (const statement of bodyStatements) {
-      childScope.lastBlock = await this.parseStatement(statement, childScope) as string;
-      if (!firstBlock) {
-        firstBlock = childScope.lastBlock;
-      }
+      await this.parseStatement(statement, childScope);
     }
 
-    if (firstBlock) {
-      this.root.blocks[firstBlock].parent = parentBlockId;
+    if (childScope.firstBlock) {
+      this.root.blocks[childScope.firstBlock].parent = parentBlockId;
     }
 
-    return firstBlock;
+    return childScope.firstBlock;
   }
 
   async parseBinaryExpression (
@@ -537,13 +564,13 @@ class Compiler {
       }
       case NodeType.WhileStatement: {
         const test = await this.parseExpression(statement.test, scope, true);
-        const whileId = this.insertBlock({
+        const whileId = this.append(scope, {
           opcode: 'control_while',
           inputs: {
             CONDITION: test,
             SUBSTACK: [2]
           }
-        }, scope.lastBlock);
+        });
         const firstBody = await this.parseSubstack(statement.body.body, scope, whileId);
         if (firstBody) {
           this.root.blocks[whileId].inputs.SUBSTACK = [2, firstBody];
@@ -553,13 +580,13 @@ class Compiler {
       case NodeType.IfStatement: {
         const test = await this.parseExpression(statement.test, scope, true);
         const hasElse = statement.alternate !== null;
-        const ifId = this.insertBlock({
+        const ifId = this.append(scope, {
           opcode: hasElse ? 'control_if_else' : 'control_if',
           inputs: {
             CONDITION: test,
             SUBSTACK: [2]
           }
-        }, scope.lastBlock);
+        });
         const firstCons = await this.parseSubstack(statement.consequent.body, scope, ifId);
         if (firstCons) {
           this.root.blocks[ifId].inputs.SUBSTACK = [2, firstCons];
@@ -577,13 +604,13 @@ class Compiler {
       }
       case NodeType.RepeatStatement: {
         const count = await this.parseExpression(statement.count, scope, true);
-        const repeatId = this.insertBlock({
+        const repeatId = this.append(scope, {
           opcode: 'control_repeat',
           inputs: {
             TIMES: count,
             SUBSTACK: [2]
           }
-        }, scope.lastBlock);
+        });
         const firstBody = await this.parseSubstack(statement.body.body, scope, repeatId);
         if (firstBody) {
           this.root.blocks[repeatId].inputs.SUBSTACK = [2, firstBody];
@@ -594,13 +621,13 @@ class Compiler {
         scope.lastBlock = await this.parseStatement(statement.init, scope) as string;
 
         const test = await this.parseExpression(statement.test, scope, true);
-        const whileId = this.insertBlock({
+        const whileId = this.append(scope, {
           opcode: 'control_while',
           inputs: {
             CONDITION: test,
             SUBSTACK: [2]
           }
-        }, scope.lastBlock);
+        });
 
         const bodyWithUpdate: Statement[] = [
           ...statement.body.body,
@@ -636,7 +663,7 @@ class Compiler {
             return scope.lastBlock;
           }
           const value = await this.parseExpression(statement.init, scope, true);
-          return this.insertBlock({
+          return this.append(scope, {
             opcode: 'data_setvariableto',
             fields: {
               VARIABLE: [variable.storage.name, newVarId]
@@ -644,7 +671,7 @@ class Compiler {
             inputs: {
               VALUE: value
             }
-          }, scope.lastBlock);
+          });
         }
         return scope.lastBlock;
       }
@@ -653,7 +680,7 @@ class Compiler {
           throw new Error('Return statements can only be used inside of functions.');
         }
         const value = await this.parseExpression(statement.value, scope, true);
-        const block1 = this.insertBlock({
+        const block1 = this.append(scope, {
           opcode: 'data_setvariableto',
           fields: {
             VARIABLE: ['$', this._returnVar]
@@ -661,8 +688,8 @@ class Compiler {
           inputs: {
             VALUE: value
           }
-        }, scope.lastBlock);
-        return this.insertBlock({
+        });
+        return this.append(scope, {
           opcode: 'control_stop',
           fields: {
             STOP_OPTION: ['this script', null]
@@ -672,7 +699,7 @@ class Compiler {
             hasnext: false,
             children: []
           }
-        }, block1);
+        });
       }
       case NodeType.ImportStatement: {
         let fileExports: Bindings;
@@ -799,14 +826,14 @@ class Compiler {
 
   async parseASTBody (body: Statement[], scope: Scope) {
     if (!scope.lastBlock) {
-      scope.lastBlock = this.insertBlock({
+      this.append(scope, {
         opcode: 'event_whenflagclicked',
         topLevel: true
       });
     }
 
     for (const statement of body) {
-      scope.lastBlock = await this.parseStatement(statement, scope) as string;
+      await this.parseStatement(statement, scope);
     }
   }
 
