@@ -592,8 +592,8 @@ class Compiler {
         const funcScope = scope.createChild(true);
         funcScope.lastBlock = definition;
         args.forEach(p => funcScope.defineParam(p));
-        await this.parseASTBody(statement.body.body, funcScope);
         scope.defineFunction(statement.name, mutation);
+        await this.parseASTBody(statement.body.body, funcScope);
         return scope.lastBlock;
       }
     }
