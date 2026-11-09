@@ -2071,7 +2071,7 @@ class Compiler {
 
     this.arrays = Object.values(this._programs).some(program => this.usesArrays(program));
     this.builtins = await this.compileFile(
-      fileURLToPath(new URL('./assets/arrays.claw', import.meta.url)), true
+      fileURLToPath(new URL('./internal/arrays.claw', import.meta.url)), true
     );
     await this.compileFile(path.resolve(filePath));
 

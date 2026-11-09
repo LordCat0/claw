@@ -1,3 +1,8 @@
+// What is this?
+// This is a claw file used by the compiler for handling dynamic arrays.
+// This file only gets included when dynamic arrays are used.
+
+
 var epoch = 0;
 var freeHandle = 0;
 var owner = 0;
