@@ -76,6 +76,8 @@ export const enum NodeType {
   UnaryExpression = 'UnaryExpression',
   CallExpression = 'CallExpression',
   MemberExpression = 'MemberExpression',
+  IndexExpression = 'IndexExpression',
+  ArrayExpression = 'ArrayExpression',
   UpdateExpression = 'UpdateExpression',
   NumberLiteral = 'NumberLiteral',
   StringLiteral = 'StringLiteral',
@@ -105,6 +107,8 @@ export type Expression =
   | FunctionExpression
   | CallExpression
   | MemberExpression
+  | IndexExpression
+  | ArrayExpression
   | UpdateExpression
   | NumberLiteral
   | StringLiteral
@@ -127,6 +131,7 @@ interface Assignment {
   type: NodeType.Assignment;
   target: Expression;
   value: Expression;
+  operator?: string;
 }
 
 interface ExpressionStatement {
@@ -238,6 +243,17 @@ export interface MemberExpression {
   type: NodeType.MemberExpression;
   object: Expression;
   property: string;
+}
+
+export interface IndexExpression {
+  type: NodeType.IndexExpression;
+  object: Expression;
+  index: Expression;
+}
+
+export interface ArrayExpression {
+  type: NodeType.ArrayExpression;
+  elements: Expression[];
 }
 
 export interface UpdateExpression {
@@ -366,9 +382,15 @@ export interface FunctionBinding {
   compile?: () => Promise<void>;
   args: FunctionArgument[];
   create: (args: CallArguments, compiler: Compiler) => BlockOptions;
+  reference?: (args: CallArguments, compiler: Compiler) => ScratchInput;
+  scalar?: boolean;
+  referenceVariables?: string[];
+  shared?: 'locked' | 'helper';
   procedure?: {
     frame: CallFrame | null;
     captures: string[];
+    result: VariableBinding | null;
+    variables: VariableBinding[];
   };
 }
 
@@ -377,6 +399,8 @@ export interface VariableBinding {
   temporary?: boolean;
   boolean?: boolean;
   constantValue?: Literal;
+  reference?: VariableBinding;
+  scalar?: boolean;
   get: FunctionBinding;
   set?: FunctionBinding;
   storage?: {

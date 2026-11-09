@@ -1,0 +1,705 @@
+var epoch = 0;
+var freeHandle = 0;
+var owner = 0;
+var depth = 0;
+var reserving = 0;
+var allocated = 0;
+
+function* enter() {
+  compiler.waitUntil((owner == 0 || owner == thread) && reserving == 0);
+  owner = thread;
+  depth++;
+}
+
+function* leave() {
+  depth--;
+  if (depth == 0) {
+    compiler.waitUntil(reserving == 0);
+    owner = 0;
+  }
+}
+
+function* clearRoot(index) {
+  lists.replace("$objects", lists.item("$roots", index) + 5, epoch);
+  lists.replace("$roots", index, 0);
+}
+
+function* clearLocal(index) {
+  lists.replace("$objects", lists.item("$locals", index) + 5, epoch);
+  lists.replace("$locals", index, 0);
+}
+
+function* allocateFrame(bucket, size) {
+  compiler.waitUntil(reserving == 0);
+  reserving = 1;
+  var head = lists.item("$frameFree", bucket);
+  if (head > 0) {
+    allocated = head;
+    lists.replace("$frameFree", bucket, lists.item("$frames", head));
+  } else {
+    if (lists.length("$frames") + size > 199999) {
+      fail("Function memory is full.");
+    }
+    allocated = lists.length("$frames") + 1;
+    repeat (size + 1) {
+      lists.add("$frames", "");
+      if (compiler.arrays) {
+        lists.add("$locals", 0);
+      }
+    }
+  }
+  reserving = 0;
+  return allocated;
+}
+
+function* releaseFrame(frame, bucket, size) {
+  if (compiler.arrays) {
+    lists.replace("$frames", frame, frame + 1);
+    repeat (size) {
+      clearLocal(lists.item("$frames", frame));
+      lists.replace("$frames", frame, lists.item("$frames", frame) + 1);
+    }
+  }
+  lists.replace("$frames", frame, lists.item("$frameFree", bucket));
+  lists.replace("$frameFree", bucket, frame);
+}
+
+function* initialize(rootCount, frameBuckets) {
+  repeat (frameBuckets) {
+    lists.add("$frameFree", 0);
+  }
+  if (compiler.arrays) {
+    repeat (6) {
+      lists.add("$objects", 0);
+    }
+    repeat (17) {
+      lists.add("$free", 0);
+    }
+    repeat (rootCount) {
+      lists.add("$roots", 0);
+    }
+  }
+}
+
+function* capacity(count) {
+  var size = 4;
+  while (size < count) {
+    size *= 2;
+  }
+  if (size > 200000) {
+    size = 200000;
+  }
+  return size;
+}
+
+function* bucket(size) {
+  var result = 1;
+  var count = 4;
+  while (count < size) {
+    count *= 2;
+    result++;
+  }
+  return result;
+}
+
+function* freeBuffer(array) {
+  var size = lists.item("$objects", array + 3);
+  if (size > 0) {
+    var start = lists.item("$objects", array + 1);
+    var group = lists.item("$objects", array + 4);
+    lists.replace("$values", start, lists.item("$free", group));
+    lists.replace("$references", start, 0);
+    lists.replace("$free", group, start);
+  }
+  lists.replace("$objects", array + 1, 0);
+  lists.replace("$objects", array + 2, 0);
+  lists.replace("$objects", array + 3, 0);
+  lists.replace("$objects", array + 4, 0);
+}
+
+function* reserve(array, count) {
+  var oldCapacity = lists.item("$objects", array + 3);
+  if (count <= oldCapacity) {
+    return;
+  }
+  if (count > 200000) {
+    fail("Array memory is full.");
+  }
+  var size = capacity(count);
+  var group = bucket(size);
+  var start = lists.item("$objects", array + 1);
+  if (start > 0 &&
+      start + oldCapacity - 1 == lists.length("$values") &&
+      lists.length("$values") + size - oldCapacity <= 200000) {
+    repeat (size - oldCapacity) {
+      lists.add("$values", "");
+      lists.add("$references", 0);
+    }
+    lists.replace("$objects", array + 3, size);
+    lists.replace("$objects", array + 4, group);
+    return;
+  }
+  var next = lists.item("$free", group);
+  if (next > 0) {
+    lists.replace("$free", group, lists.item("$values", next));
+  } else {
+    if (lists.length("$values") + size > 200000) {
+      collect();
+      compact(array, size);
+      return;
+    }
+    next = lists.length("$values") + 1;
+    repeat (size) {
+      lists.add("$values", "");
+      lists.add("$references", 0);
+    }
+  }
+  var index = 0;
+  var length = lists.item("$objects", array + 2);
+  while (index < length) {
+    lists.replace("$values", next + index, lists.item("$values", start + index));
+    lists.replace("$references", next + index, lists.item("$references", start + index));
+    index++;
+  }
+  freeBuffer(array);
+  lists.replace("$objects", array + 1, next);
+  lists.replace("$objects", array + 2, length);
+  lists.replace("$objects", array + 3, size);
+  lists.replace("$objects", array + 4, group);
+}
+
+function* create(inputCount) {
+  enter();
+  var count = integer(inputCount);
+  if (count < 0) {
+    fail("Array length cannot be negative.");
+  }
+  if (freeHandle == 0 && lists.length("$objects") + 6 > 200000) {
+    collect();
+  }
+  var handle = freeHandle;
+  if (handle > 0) {
+    freeHandle = lists.item("$objects", handle + 1);
+    var index = 1;
+    repeat (6) {
+      lists.replace("$objects", handle + index, 0);
+      index++;
+    }
+  } else {
+    if (lists.length("$objects") + 6 > 200000) {
+      fail("Too many live arrays.");
+    }
+    handle = lists.length("$objects");
+    repeat (6) {
+      lists.add("$objects", 0);
+    }
+  }
+  var array = compiler.array(handle);
+  reserve(array, count);
+  return array;
+}
+
+function* mark(array) {
+  if (array > 0 && lists.item("$objects", array + 6) != epoch) {
+    lists.replace("$objects", array + 5, epoch);
+    lists.replace("$objects", array + 6, epoch);
+    lists.add("$work", array);
+  }
+}
+
+function* collect() {
+  epoch++;
+  var index = 1;
+  var count = lists.length("$roots");
+  while (index <= count) {
+    mark(lists.item("$roots", index));
+    index++;
+  }
+  index = 1;
+  count = lists.length("$locals");
+  while (index <= count) {
+    mark(lists.item("$locals", index));
+    index++;
+  }
+  var array = 6;
+  while (array < lists.length("$objects")) {
+    if (lists.item("$objects", array + 5) == epoch) {
+      mark(array);
+    }
+    array += 6;
+  }
+  while (lists.length("$work") > 0) {
+    array = lists.item("$work", lists.length("$work"));
+    lists.delete("$work", "last");
+    var start = lists.item("$objects", array + 1);
+    count = lists.item("$objects", array + 2);
+    index = 0;
+    while (index < count) {
+      mark(lists.item("$references", start + index));
+      index++;
+    }
+  }
+  array = 6;
+  while (array < lists.length("$objects")) {
+    if (lists.item("$objects", array + 3) >= 0 && lists.item("$objects", array + 5) != epoch) {
+      freeBuffer(array);
+      lists.replace("$objects", array + 3, -1);
+      lists.replace("$objects", array + 1, freeHandle);
+      freeHandle = array;
+    }
+    array += 6;
+  }
+}
+
+function* stopOthers() {
+  enter();
+  stop("other scripts in sprite");
+  leave();
+}
+
+function* deleteClone() {
+  enter();
+  leave();
+  sprite.deleteClone();
+}
+
+function* compact(target, targetCapacity) {
+  var array = 6;
+  while (array < lists.length("$objects")) {
+    if (lists.item("$objects", array + 3) >= 0) {
+      var count = lists.item("$objects", array + 2);
+      var size = 0;
+      if (count > 0) {
+        size = capacity(count);
+      }
+      if (array == target + 0) {
+        size = targetCapacity;
+      }
+      if (lists.length("$scratchValues") + size > 200000) {
+        fail("Array memory is full.");
+      }
+      var start = lists.item("$objects", array + 1);
+      var next = 0;
+      if (size > 0) {
+        next = lists.length("$scratchValues") + 1;
+      }
+      var index = 0;
+      while (index < count) {
+        lists.add("$scratchValues", lists.item("$values", start + index));
+        lists.add("$scratchReferences", lists.item("$references", start + index));
+        index++;
+      }
+      repeat (size - count) {
+        lists.add("$scratchValues", "");
+        lists.add("$scratchReferences", 0);
+      }
+      lists.replace("$objects", array + 1, next);
+      lists.replace("$objects", array + 3, size);
+      lists.replace("$objects", array + 4, bucket(size));
+    }
+    array += 6;
+  }
+  lists.clear("$values");
+  lists.clear("$references");
+  var index = 1;
+  while (index <= lists.length("$scratchValues")) {
+    lists.add("$values", lists.item("$scratchValues", index));
+    lists.add("$references", lists.item("$scratchReferences", index));
+    index++;
+  }
+  lists.clear("$scratchValues");
+  lists.clear("$scratchReferences");
+  index = 1;
+  repeat (lists.length("$free")) {
+    lists.replace("$free", index, 0);
+    index++;
+  }
+}
+
+function* length(array) {
+  enter();
+  check(array);
+  return lists.item("$objects", array + 2);
+}
+
+function* get(array, inputIndex) {
+  enter();
+  check(array);
+  var index = integer(inputIndex);
+  var result = "";
+  if (index >= 0 && index < lists.item("$objects", array + 2)) {
+    result = compiler.read(lists.item("$objects", array + 1) + index);
+  }
+  return result;
+}
+
+function* at(array, inputIndex) {
+  enter();
+  check(array);
+  var index = integer(inputIndex);
+  if (index < 0) {
+    index += lists.item("$objects", array + 2);
+  }
+  return get(array, index);
+}
+
+function* set(array, inputIndex, value) {
+  enter();
+  check(array);
+  var index = integer(inputIndex);
+  var count = lists.item("$objects", array + 2);
+  if (index < 0 || index > count) {
+    fail("Array assignment is out of bounds.");
+  }
+  reserve(array, index + 1);
+  var position = lists.item("$objects", array + 1) + index;
+  lists.replace("$values", position, value);
+  lists.replace("$references", position, compiler.reference(value));
+  if (index == count) {
+    lists.replace("$objects", array + 2, count + 1);
+  }
+  return value;
+}
+
+function* resize(array, inputCount) {
+  enter();
+  check(array);
+  var count = integer(inputCount);
+  if (count < 0) {
+    fail("Array length cannot be negative.");
+  }
+  reserve(array, count);
+  var index = lists.item("$objects", array + 2);
+  var start = lists.item("$objects", array + 1);
+  while (index < count) {
+    lists.replace("$values", start + index, "");
+    lists.replace("$references", start + index, 0);
+    index++;
+  }
+  lists.replace("$objects", array + 2, count);
+  return count;
+}
+
+function* push(array, value) {
+  enter();
+  check(array);
+  var count = lists.item("$objects", array + 2);
+  reserve(array, count + 1);
+  var position = lists.item("$objects", array + 1) + count;
+  lists.replace("$values", position, value);
+  lists.replace("$references", position, compiler.reference(value));
+  lists.replace("$objects", array + 2, count + 1);
+  return count + 1;
+}
+
+function* pop(array) {
+  enter();
+  check(array);
+  var count = lists.item("$objects", array + 2);
+  var result = "";
+  if (count > 0) {
+    result = compiler.read(lists.item("$objects", array + 1) + count - 1);
+    lists.replace("$objects", array + 2, count - 1);
+  }
+  return result;
+}
+
+function* clear(array) {
+  enter();
+  check(array);
+  freeBuffer(array);
+  return array;
+}
+
+function* shift(array) {
+  enter();
+  check(array);
+  var result = get(array, 0);
+  var count = lists.item("$objects", array + 2);
+  var start = lists.item("$objects", array + 1);
+  var index = 1;
+  while (index < count) {
+    lists.replace("$values", start + index - 1, lists.item("$values", start + index));
+    lists.replace("$references", start + index - 1, lists.item("$references", start + index));
+    index++;
+  }
+  if (count > 0) {
+    lists.replace("$objects", array + 2, count - 1);
+  }
+  return result;
+}
+
+function* reverse(array) {
+  enter();
+  check(array);
+  var start = lists.item("$objects", array + 1);
+  var left = 0;
+  var right = lists.item("$objects", array + 2) - 1;
+  while (left < right) {
+    var value = lists.item("$values", start + left);
+    var reference = lists.item("$references", start + left);
+    lists.replace("$values", start + left, lists.item("$values", start + right));
+    lists.replace("$references", start + left, lists.item("$references", start + right));
+    lists.replace("$values", start + right, value);
+    lists.replace("$references", start + right, reference);
+    left++;
+    right--;
+  }
+  return array;
+}
+
+function* fill(array, value, inputStart, inputEnd) {
+  enter();
+  check(array);
+  var count = lists.item("$objects", array + 2);
+  var start = bound(inputStart, count);
+  var end = bound(inputEnd, count);
+  var base = lists.item("$objects", array + 1);
+  while (start < end) {
+    lists.replace("$values", base + start, value);
+    lists.replace("$references", base + start, compiler.reference(value));
+    start++;
+  }
+  return array;
+}
+
+function* indexOf(array, value, inputStart) {
+  enter();
+  check(array);
+  var count = lists.item("$objects", array + 2);
+  var start = bound(inputStart, count);
+  var base = lists.item("$objects", array + 1);
+  var result = -1;
+  while (start < count && result < 0) {
+    if (compiler.read(base + start) == value) {
+      result = start;
+    }
+    start++;
+  }
+  return result;
+}
+
+function* lastIndexOf(array, value, inputStart) {
+  enter();
+  check(array);
+  var count = lists.item("$objects", array + 2);
+  var start = integer(inputStart);
+  if (start < 0) {
+    start += count;
+  }
+  if (start >= count) {
+    start = count - 1;
+  }
+  var base = lists.item("$objects", array + 1);
+  var result = -1;
+  while (start >= 0 && result < 0) {
+    if (compiler.read(base + start) == value) {
+      result = start;
+    }
+    start--;
+  }
+  return result;
+}
+
+function* joinValue(value, separator) {
+  if (lists.contains("$path", value + 0)) {
+    return "";
+  }
+  lists.add("$path", value + 0);
+  var count = lists.item("$objects", value + 2);
+  var start = lists.item("$objects", value + 1);
+  var index = 0;
+  var result = "";
+  while (index < count) {
+    if (index > 0) {
+      result = compiler.join(result, separator);
+    }
+    var item = compiler.read(start + index);
+    if (arrays.isArray(item)) {
+      result = compiler.join(result, joinValue(item, ","));
+    } else {
+      result = compiler.join(result, item);
+    }
+    index++;
+  }
+  lists.delete("$path", "last");
+  return result;
+}
+
+function* join(array, separator) {
+  enter();
+  check(array);
+  return joinValue(array, separator);
+}
+
+function* sort(array) {
+  enter();
+  check(array);
+  var count = lists.item("$objects", array + 2);
+  var base = lists.item("$objects", array + 1);
+  repeat (count) {
+    lists.add("$scratchValues", "");
+    lists.add("$scratchReferences", 0);
+  }
+  var width = 1;
+  while (width < count) {
+    var start = 0;
+    while (start < count) {
+      var middle = start + width;
+      if (middle > count) {
+        middle = count;
+      }
+      var end = start + width * 2;
+      if (end > count) {
+        end = count;
+      }
+      var left = start;
+      var right = middle;
+      var index = start;
+      while (index < end) {
+        var source = right;
+        if (right >= end ||
+            left < middle &&
+            !(lists.item("$values", base + right) < lists.item("$values", base + left))) {
+          source = left;
+          left++;
+        } else {
+          right++;
+        }
+        lists.replace("$scratchValues", index + 1, lists.item("$values", base + source));
+        lists.replace("$scratchReferences", index + 1, lists.item("$references", base + source));
+        index++;
+      }
+      start += width * 2;
+    }
+    var index = 0;
+    while (index < count) {
+      lists.replace("$values", base + index, lists.item("$scratchValues", index + 1));
+      lists.replace("$references", base + index, lists.item("$scratchReferences", index + 1));
+      index++;
+    }
+    width *= 2;
+  }
+  lists.clear("$scratchValues");
+  lists.clear("$scratchReferences");
+  return array;
+}
+
+function* slice(array, inputStart, inputEnd) {
+  enter();
+  check(array);
+  var count = lists.item("$objects", array + 2);
+  var start = bound(inputStart, count);
+  var end = bound(inputEnd, count);
+  if (end < start) {
+    end = start;
+  }
+  var result = create(end - start);
+  var source = lists.item("$objects", array + 1);
+  var target = lists.item("$objects", result + 1);
+  var index = 0;
+  while (index < end - start) {
+    lists.replace("$values", target + index, lists.item("$values", source + start + index));
+    lists.replace("$references", target + index, lists.item("$references", source + start + index));
+    index++;
+  }
+  lists.replace("$objects", result + 2, end - start);
+  return result;
+}
+
+function* extend(array, other) {
+  enter();
+  check(array);
+  if (!arrays.isArray(other)) {
+    push(array, other);
+  } else {
+    var start = lists.item("$objects", array + 2);
+    var count = lists.item("$objects", other + 2);
+    reserve(array, start + count);
+    var source = lists.item("$objects", other + 1);
+    var target = lists.item("$objects", array + 1);
+    var index = 0;
+    while (index < count) {
+      lists.replace("$values", target + start + index, lists.item("$values", source + index));
+      lists.replace("$references", target + start + index, lists.item("$references", source + index));
+      index++;
+    }
+    lists.replace("$objects", array + 2, start + count);
+  }
+  return array;
+}
+
+function* splice(array, inputStart, inputCount, items) {
+  enter();
+  check(array);
+  var length = lists.item("$objects", array + 2);
+  var start = bound(inputStart, length);
+  var count = integer(inputCount);
+  if (count < 0) {
+    count = 0;
+  }
+  if (count > length - start) {
+    count = length - start;
+  }
+  var added = lists.item("$objects", items + 2);
+  var removed = slice(array, start, start + count);
+  reserve(array, length - count + added);
+  var base = lists.item("$objects", array + 1);
+  var index = start + count;
+  var step = 1;
+  var end = length;
+  if (added > count) {
+    index = length - 1;
+    step = -1;
+    end = start + count - 1;
+  }
+  while (index != end) {
+    lists.replace("$values", base + index - count + added, lists.item("$values", base + index));
+    lists.replace("$references", base + index - count + added, lists.item("$references", base + index));
+    index += step;
+  }
+  var source = lists.item("$objects", items + 1);
+  index = 0;
+  while (index < added) {
+    lists.replace("$values", base + start + index, lists.item("$values", source + index));
+    lists.replace("$references", base + start + index, lists.item("$references", source + index));
+    index++;
+  }
+  lists.replace("$objects", array + 2, length - count + added);
+  return removed;
+}
+
+function* fail(message) {
+  print(message);
+  stop("all");
+}
+
+function* check(array) {
+  if (!arrays.isArray(array)) {
+    fail("Expected an array.");
+  }
+}
+
+function* integer(value) {
+  if (arrays.isArray(value) || !(value == math.calculate("floor", value))) {
+    fail("Expected a finite integer.");
+  }
+  if (value > 200000 || value < -200000) {
+    fail("Array index or length exceeds the Scratch limit.");
+  }
+  return value + 0;
+}
+
+function* bound(inputIndex, count) {
+  var index = integer(inputIndex);
+  if (index < 0) {
+    index += count;
+  }
+  if (index < 0) {
+    return 0;
+  }
+  if (index > count) {
+    return count;
+  }
+  return index;
+}

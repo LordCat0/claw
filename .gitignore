@@ -143,4 +143,4 @@ vite.config.ts.timestamp-*
 
 # Prototype files
 prototype/
-*.claw
+proto.claw

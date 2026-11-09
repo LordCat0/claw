@@ -6,6 +6,7 @@ import control from './categories/control.ts';
 import sensing from './categories/sensing.ts';
 import operators from './categories/operators.ts';
 import data from './categories/data.ts';
+import arrays from './categories/arrays.ts';
 import pen from './extensions/pen.ts';
 import music from './extensions/music.ts';
 import videoSensing from './extensions/videoSensing.ts';
@@ -22,6 +23,7 @@ import type { Bindings } from '../types.ts';
 export const globals: Bindings = {
   ...control.globals,
   ...data.globals,
+  ...arrays,
   math: {
     kind: 'object',
     members: operators.math

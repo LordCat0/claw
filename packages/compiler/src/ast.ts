@@ -127,21 +127,13 @@ class ASTBuilder {
         (token.type === TokenType.OPERATOR &&
           ['+=', '-=', '*=', '/=', '%='].includes(token.value as string))) {
       this.advance();
-      let value = this.parseExpression();
-
-      if (token.type === TokenType.OPERATOR) {
-        value = {
-          type: NodeType.BinaryExpression,
-          operator: (token.value as string)[0],
-          left: expr,
-          right: value
-        };
-      }
+      const value = this.parseExpression();
 
       return {
         type: NodeType.Assignment,
         target: expr,
-        value
+        value,
+        operator: token.type === TokenType.OPERATOR ? (token.value as string)[0] : undefined
       };
     }
 
@@ -484,7 +476,20 @@ class ASTBuilder {
   parseCallExpression (): Expression {
     let expr = this.parsePrimary();
 
-    while (this.current().type === TokenType.LPAREN || this.current().type === TokenType.DOT) {
+    while (this.current().type === TokenType.LPAREN ||
+        this.current().type === TokenType.DOT || this.current().type === TokenType.LBRACKET) {
+      if (this.current().type === TokenType.LBRACKET) {
+        this.advance();
+        const index = this.parseExpression();
+        this.expect(TokenType.RBRACKET);
+        expr = {
+          type: NodeType.IndexExpression,
+          object: expr,
+          index
+        };
+        continue;
+      }
+
       if (this.current().type === TokenType.DOT) {
         this.advance();
         const token = this.current();
@@ -537,6 +542,27 @@ class ASTBuilder {
     const token = this.current();
 
     switch (token.type) {
+      case TokenType.LBRACKET: {
+        this.advance();
+        const elements: Expression[] = [];
+
+        while (this.current().type !== TokenType.RBRACKET) {
+          elements.push(this.parseExpression());
+
+          if (this.current().type !== TokenType.COMMA) {
+            break;
+          }
+
+          this.advance();
+        }
+
+        this.expect(TokenType.RBRACKET);
+        return {
+          type: NodeType.ArrayExpression,
+          elements
+        };
+      }
+
       case TokenType.NUMBER:
         this.advance();
         return {
