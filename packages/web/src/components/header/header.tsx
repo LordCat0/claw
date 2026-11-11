@@ -8,7 +8,7 @@ import ProfileMenu from '../profile-menu/profile-menu';
 import * as styles from './header.css';
 
 interface HeaderProps {
-  query: string;
+  query?: string;
 }
 
 export default function Header(props: HeaderProps) {

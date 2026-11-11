@@ -10,6 +10,7 @@
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.6",
+    "@types/react-sparklines": "^1.7.5",
     "@vanilla-extract/vite-plugin": "^5.2.6",
     "typescript": "^7.0.2",
     "vite": "^8.3.7"
@@ -20,7 +21,9 @@
     "@tanstack/react-query": "^5.107.1",
     "@vanilla-extract/css": "^1.21.3",
     "lucide-preact": "^1.72.0",
+    "marked-react": "^4.0.0",
     "preact": "^11.2.0",
-    "preact-router": "^4.1.2"
+    "preact-router": "^4.1.2",
+    "react-sparklines": "^1.7.0"
   }
 }

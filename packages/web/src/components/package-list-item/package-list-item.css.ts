@@ -20,6 +20,15 @@ export const description = style({
   lineHeight: 1.6
 });
 
+export const link = style({
+  color: 'inherit',
+  textDecoration: 'none',
+  ':hover': {
+    color: theme.brand.primary,
+    textDecoration: 'underline'
+  }
+});
+
 export const metadata = style({
   display: 'flex',
   flexWrap: 'wrap',

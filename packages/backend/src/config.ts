@@ -13,8 +13,10 @@ const config = z.object({
 }).safeParse(process.env);
 
 if (!config.success) {
-  const fields = config.error.issues.map(issue => issue.path.join('.'));
-  console.error(`Invalid environment variables: ${fields.join(', ')}`);
+  const issues = config.error.issues.map(
+    issue => `${issue.path.join('.')}: ${issue.message}`
+  );
+  console.error(`Invalid environment variables:\n${issues.join('\n')}`);
   process.exit(1);
 }
 

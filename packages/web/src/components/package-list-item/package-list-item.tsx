@@ -11,7 +11,9 @@ export default function PackageListItem(props: PackageListItemProps) {
 
   return (
     <li className={styles.result}>
-      <h2 className={styles.name}>{pkg.name}</h2>
+      <h2 className={styles.name}>
+        <a className={styles.link} href={`/package/${pkg.name}`}>{pkg.name}</a>
+      </h2>
       {pkg.description && (
         <p className={styles.description}>{pkg.description}</p>
       )}

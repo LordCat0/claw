@@ -40,7 +40,7 @@ app.use((_req, res) => {
 
 const handleError: ErrorRequestHandler = (
   error: unknown,
-  _req,
+  req,
   res,
   next
 ) => {
@@ -66,7 +66,7 @@ const handleError: ErrorRequestHandler = (
     return;
   }
 
-  console.error(error);
+  console.error(`${req.method} ${req.path} failed`, error);
   res.status(500).json({ error: 'Internal server error' });
 };
 

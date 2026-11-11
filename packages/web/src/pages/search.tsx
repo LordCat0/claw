@@ -42,7 +42,7 @@ export default function Search(props: SearchProps) {
       const response = await fetch(`${env.apiUrl}/search?${search}`, { signal });
 
       if (!response.ok) {
-        throw new Error('Could not load packages');
+        throw new Error(`GET ${response.url} failed (${response.status})`);
       }
 
       return response.json();
