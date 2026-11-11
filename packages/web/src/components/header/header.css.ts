@@ -27,9 +27,8 @@ export const search = style({
   display: 'flex',
   alignItems: 'center',
   flex: 1,
-  gap: 12,
   minWidth: 0,
-  padding: '0 16px',
+  paddingRight: 16,
   background: theme.color.surface,
   color: theme.color.muted,
   ':focus-within': {
@@ -41,6 +40,24 @@ export const search = style({
       order: 1,
       flexBasis: '100%'
     }
+  }
+});
+
+export const searchButton = style({
+  display: 'grid',
+  placeItems: 'center',
+  flexShrink: 0,
+  width: 44,
+  height: 44,
+  padding: 0,
+  border: 0,
+  background: 'transparent',
+  color: theme.color.muted,
+  ':hover': {
+    color: theme.brand.primary
+  },
+  ':focus-visible': {
+    outlineOffset: -4
   }
 });
 
