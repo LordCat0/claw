@@ -1,4 +1,5 @@
 import express from 'express';
+import cors from 'cors';
 import type { ErrorRequestHandler } from 'express';
 import { ZodError } from 'zod';
 import cdnRouter from './routes/cdn/download.ts';
@@ -8,23 +9,22 @@ import collectionRouter from './routes/packages/collection.ts';
 import packageDownloadRouter from './routes/packages/download.ts';
 import metadataRouter from './routes/packages/metadata.ts';
 import versionRouter from './routes/packages/version.ts';
-import preflightRouter from './routes/preflight.ts';
 
 const app = express();
 
 app.disable('x-powered-by');
 app.use((_req, res, next) => {
   res.set({
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Authorization, Content-Type',
     'X-Content-Type-Options': 'nosniff',
     'Cache-Control': 'no-store'
   });
   next();
 });
 
-app.use(preflightRouter);
+app.use(cors({
+  methods: ['GET', 'HEAD', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Authorization', 'Content-Type']
+}));
 app.use('/health', healthRouter);
 app.use(discoveryRouter);
 app.use(

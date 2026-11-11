@@ -1,4 +1,5 @@
 import app from './app.ts';
+import gracefulShutdown from 'http-graceful-shutdown';
 import database from './services/database.ts';
 import s3 from './services/s3.ts';
 import { env } from './config.ts';
@@ -16,15 +17,15 @@ const server = app.listen(env.PORT, '0.0.0.0', () => {
   console.log(`CDN listening on port ${env.PORT}`);
 });
 
-for (const signal of ['SIGINT', 'SIGTERM']) {
-  process.once(signal, () => {
-    server.close(() => {
-      database.close().then(() => {
-        s3.close();
-      }).catch(error => {
-        console.error('Could not close PostgreSQL connections', error);
-        process.exitCode = 1;
-      });
-    });
-  });
-}
+gracefulShutdown(server, {
+  onShutdown: async () => {
+    try {
+      await database.close();
+    } catch (error) {
+      console.error('Could not close PostgreSQL connections', error);
+      throw error;
+    } finally {
+      s3.close();
+    }
+  }
+});
