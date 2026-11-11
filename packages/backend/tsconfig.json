@@ -11,7 +11,12 @@
     "rewriteRelativeImportExtensions": true,
     "types": [
       "node"
-    ]
+    ],
+    "paths": {
+      "@clerk/express": [
+        "./src/clerk.d.ts"
+      ]
+    }
   },
   "include": [
     "src/**/*.ts"

@@ -1,24 +1,18 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { clerkMiddleware, getAuth } from '@clerk/express';
 import { json, Router } from 'express';
 import database from '../../services/database.ts';
 import s3 from '../../services/s3.ts';
-import { env } from '../../config.ts';
 import { publishBody } from '../../validation.ts';
 import { searchPackages } from '../discovery.ts';
 
 const router = Router();
-const tokenHash = createHash('sha256')
-  .update(`Bearer ${env.PUBLISH_TOKEN}`).digest();
 
 router.route('/')
   .get(searchPackages)
-  .post((req, res, next) => {
-    const suppliedHash = createHash('sha256')
-      .update(req.get('authorization') || '').digest();
-
-    if (!timingSafeEqual(tokenHash, suppliedHash)) {
+  .post(clerkMiddleware(), (req, res, next) => {
+    if (!getAuth(req).isAuthenticated) {
       res.set('WWW-Authenticate', 'Bearer');
-      res.status(401).json({ error: 'Invalid publishing token' });
+      res.status(401).json({ error: 'Authentication required' });
       return;
     }
 
