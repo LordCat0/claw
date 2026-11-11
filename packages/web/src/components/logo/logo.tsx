@@ -1,4 +1,4 @@
-import claw from '../../../claw.svg';
+import claw from './claw.svg';
 import * as styles from './logo.css';
 
 export default function Logo() {
