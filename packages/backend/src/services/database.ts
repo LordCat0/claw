@@ -35,23 +35,69 @@ class DatabaseManager {
   async listPackages(
     query: {
       q: string;
+      sort: 'relevance' | 'name' | 'recent';
       limit: number;
       offset: number;
     }
   ) {
     const result = await this.pool.query<{
-      name: string;
-      versions: number;
+      packages: {
+        name: string;
+        version: string;
+        description: string;
+        publishedAt: string;
+        versions: number;
+      }[];
+      total: number;
     }>(`
-      SELECT name, COUNT(*)::INTEGER AS versions
-      FROM package_versions
-      WHERE STRPOS(name, $1) > 0
-      GROUP BY name
-      ORDER BY name
-      LIMIT $2 OFFSET $3
-    `, [query.q, query.limit, query.offset]);
+      WITH summaries AS (
+        SELECT DISTINCT ON (name)
+          name, version, description, published_at AS "publishedAt",
+          COUNT(*) OVER (PARTITION BY name)::INTEGER AS versions
+        FROM package_versions
+        ORDER BY name, published_at DESC, version DESC
+      ), matches AS (
+        SELECT * FROM summaries
+        WHERE STRPOS(LOWER(name), LOWER($1)) > 0
+          OR STRPOS(LOWER(description), LOWER($1)) > 0
+      )
+      SELECT
+        (SELECT COUNT(*)::INTEGER FROM matches) AS total,
+        COALESCE((
+          SELECT JSON_AGG(page) FROM (
+            SELECT * FROM matches
+            ORDER BY
+              CASE WHEN $4 = 'relevance' AND $1 <> '' THEN
+                CASE
+                  WHEN LOWER(name) = LOWER($1) THEN 0
+                  WHEN STRPOS(LOWER(name), LOWER($1)) = 1 THEN 1
+                  WHEN STRPOS(LOWER(name), LOWER($1)) > 0 THEN 2
+                  ELSE 3
+                END
+              END,
+              CASE WHEN $4 = 'recent' THEN "publishedAt" END DESC,
+              name
+            LIMIT $2 OFFSET $3
+          ) page
+        ), '[]'::JSON) AS packages
+    `, [query.q, query.limit, query.offset, query.sort]);
 
-    return result.rows;
+    return result.rows[0];
+  }
+
+  async getStats() {
+    const result = await this.pool.query<{
+      packages: number;
+      versions: number;
+      lastPublishedAt: Date | null;
+    }>(`
+      SELECT COUNT(DISTINCT name)::INTEGER AS packages,
+        COUNT(*)::INTEGER AS versions,
+        MAX(published_at) AS "lastPublishedAt"
+      FROM package_versions
+    `);
+
+    return result.rows[0];
   }
 
   async getVersions(name: string) {
@@ -82,6 +128,15 @@ class DatabaseManager {
 
       version = metadata.latest;
     }
+
+    const result = await this.pool.query<PackageVersion>(`
+      SELECT name, version, description, main, files,
+        published_at AS "publishedAt"
+      FROM package_versions
+      WHERE name = $1 AND version = $2
+    `, [name, version]);
+
+    return result.rows[0];
   }
 
   async publishPackage(

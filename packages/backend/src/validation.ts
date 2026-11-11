@@ -30,7 +30,8 @@ export const publishBody = z.object({
 });
 
 export const listQuery = z.object({
-  q: z.string().max(100).default(''),
+  q: text.trim().max(100).default(''),
+  sort: z.enum(['relevance', 'name', 'recent']).default('relevance'),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   offset: z.coerce.number().int().min(0).max(2_147_483_647).default(0)
 });

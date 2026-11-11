@@ -3,23 +3,15 @@ import { json, Router } from 'express';
 import database from '../../services/database.ts';
 import s3 from '../../services/s3.ts';
 import { env } from '../../config.ts';
-import { listQuery, publishBody } from '../../validation.ts';
+import { publishBody } from '../../validation.ts';
+import { searchPackages } from '../discovery.ts';
 
 const router = Router();
 const tokenHash = createHash('sha256')
   .update(`Bearer ${env.PUBLISH_TOKEN}`).digest();
 
 router.route('/')
-  .get(async (req, res) => {
-    const query = listQuery.parse(req.query);
-    const packages = await database.listPackages(query);
-
-    res.json({
-      packages,
-      limit: query.limit,
-      offset: query.offset
-    });
-  })
+  .get(searchPackages)
   .post((req, res, next) => {
     const suppliedHash = createHash('sha256')
       .update(req.get('authorization') || '').digest();

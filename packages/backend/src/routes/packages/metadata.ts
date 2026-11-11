@@ -13,7 +13,16 @@ router.route('/:name').get(async (req, res) => {
     return;
   }
 
-  res.json(metadata);
+  const latest = metadata.latest || metadata.versions[0];
+  const release = await database.getVersion(name, latest);
+
+  res.json({
+    ...metadata,
+    description: release!.description,
+    main: release!.main,
+    files: release!.files,
+    publishedAt: release!.publishedAt
+  });
 });
 
 export default router;

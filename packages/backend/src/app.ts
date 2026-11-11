@@ -2,6 +2,7 @@ import express from 'express';
 import type { ErrorRequestHandler } from 'express';
 import { ZodError } from 'zod';
 import cdnRouter from './routes/cdn/download.ts';
+import discoveryRouter from './routes/discovery.ts';
 import healthRouter from './routes/health/check.ts';
 import collectionRouter from './routes/packages/collection.ts';
 import packageDownloadRouter from './routes/packages/download.ts';
@@ -25,6 +26,7 @@ app.use((_req, res, next) => {
 
 app.use(preflightRouter);
 app.use('/health', healthRouter);
+app.use(discoveryRouter);
 app.use(
   '/packages',
   collectionRouter,
