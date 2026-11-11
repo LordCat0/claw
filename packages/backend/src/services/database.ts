@@ -1,4 +1,5 @@
 import { Pool } from 'pg';
+import type { PoolClient } from 'pg';
 import { maxSatisfying, rcompare } from 'semver';
 import { env } from '../config.ts';
 import type {
@@ -41,6 +42,15 @@ class DatabaseManager {
         downloads BIGINT NOT NULL DEFAULT 0,
         PRIMARY KEY (name, day)
       );
+
+      ALTER TABLE package_versions
+        ADD COLUMN IF NOT EXISTS readme TEXT NOT NULL DEFAULT '',
+        ADD COLUMN IF NOT EXISTS license TEXT NOT NULL DEFAULT '',
+        ADD COLUMN IF NOT EXISTS repository TEXT NOT NULL DEFAULT '',
+        ADD COLUMN IF NOT EXISTS homepage TEXT NOT NULL DEFAULT '',
+        ADD COLUMN IF NOT EXISTS keywords JSONB NOT NULL DEFAULT '[]',
+        ADD COLUMN IF NOT EXISTS dependencies JSONB NOT NULL DEFAULT '{}',
+        ADD COLUMN IF NOT EXISTS publisher_id TEXT;
     `);
   }
   async listPackages(
@@ -158,16 +168,72 @@ class DatabaseManager {
   }
 
   async getVersions(name: string) {
-    const result = await this.pool.query<{ version: string }>(`
-      SELECT version FROM package_versions WHERE name = $1
+    const result = await this.pool.query<{
+      version: string;
+      publishedAt: Date;
+      publisherId: string | null;
+    }>(`
+      SELECT version, published_at AS "publishedAt", publisher_id AS "publisherId"
+      FROM package_versions WHERE name = $1
     `, [name]);
-    const versions = result.rows.map(row => row.version).sort(rcompare);
+    const releases = result.rows.sort((a, b) => rcompare(a.version, b.version));
+    const versions = releases.map(release => release.version);
+    const lastPublishedAt = releases.reduce<Date | null>(
+      (latest, release) => latest && latest > release.publishedAt
+        ? latest
+        : release.publishedAt,
+      null
+    );
 
     return {
       name,
-      latest: maxSatisfying(versions, '*'),
-      versions
+      latest: maxSatisfying(versions, '*') || versions[0] || null,
+      versions,
+      versionCount: versions.length,
+      releases,
+      lastPublishedAt
     };
+  }
+
+  async getDependents(name: string, limit: number, offset: number) {
+    const result = await this.pool.query<{
+      total: number;
+      packages: {
+        name: string;
+        version: string;
+        description: string;
+        publishedAt: string;
+      }[];
+    }>(`
+      WITH summaries AS (
+        SELECT DISTINCT ON (name)
+          name, version, description, dependencies,
+          published_at AS "publishedAt"
+        FROM package_versions
+        ORDER BY name, published_at DESC, version DESC
+      ), matches AS (
+        SELECT name, version, description, "publishedAt"
+        FROM summaries WHERE dependencies ? $1
+      )
+      SELECT
+        (SELECT COUNT(*)::INTEGER FROM matches) AS total,
+        COALESCE((
+          SELECT JSON_AGG(page) FROM (
+            SELECT * FROM matches ORDER BY name LIMIT $2 OFFSET $3
+          ) page
+        ), '[]'::JSON) AS packages
+    `, [name, limit, offset]);
+
+    return result.rows[0];
+  }
+
+  async getOwnerId(name: string, client: Pool | PoolClient = this.pool) {
+    const result = await client.query<{ publisherId: string | null }>(`
+      SELECT publisher_id AS "publisherId" FROM package_versions WHERE name = $1
+      ORDER BY published_at, version LIMIT 1
+    `, [name]);
+
+    return result.rows[0]?.publisherId;
   }
 
   async getVersion(
@@ -187,7 +253,9 @@ class DatabaseManager {
     }
 
     const result = await this.pool.query<PackageVersion>(`
-      SELECT name, version, description, main, dist,
+      SELECT name, version, description, main, readme, license,
+        repository, homepage, keywords, dependencies,
+        publisher_id AS "publisherId", dist,
         published_at AS "publishedAt"
       FROM package_versions
       WHERE name = $1 AND version = $2
@@ -198,23 +266,62 @@ class DatabaseManager {
 
   async publishPackage(
     body: PublishBody,
-    dist: PackageDistribution
+    dist: PackageDistribution,
+    publisherId: string
   ): Promise<PackageVersion | undefined> {
-    const result = await this.pool.query<PackageVersion>(`
-      INSERT INTO package_versions (name, version, description, main, dist)
-      VALUES ($1, $2, $3, $4, $5)
-      ON CONFLICT (name, version) DO NOTHING
-      RETURNING name, version, description, main, dist,
-        published_at AS "publishedAt"
-    `, [
-      body.name,
-      body.version,
-      body.description,
-      body.main,
-      JSON.stringify(dist)
-    ]);
+    const client = await this.pool.connect();
 
-    return result.rows[0];
+    try {
+      await client.query('BEGIN');
+
+      // Prevent two publishers from claiming the same package name
+      await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [
+        body.name
+      ]);
+
+      const ownerId = await this.getOwnerId(body.name, client);
+
+      if (ownerId !== undefined && ownerId !== publisherId) {
+        throw Object.assign(new Error('Only the package owner can publish versions'), {
+          status: 403
+        });
+      }
+
+      const result = await client.query<PackageVersion>(`
+        INSERT INTO package_versions (
+          name, version, description, main, readme, license,
+          repository, homepage, keywords, dependencies, publisher_id, dist
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        ON CONFLICT (name, version) DO NOTHING
+        RETURNING name, version, description, main, readme, license,
+          repository, homepage, keywords, dependencies,
+          publisher_id AS "publisherId", dist,
+          published_at AS "publishedAt"
+      `, [
+        body.name,
+        body.version,
+        body.description,
+        body.main,
+        body.readme,
+        body.license,
+        body.repository,
+        body.homepage,
+        JSON.stringify(body.keywords),
+        JSON.stringify(body.dependencies),
+        publisherId,
+        JSON.stringify(dist)
+      ]);
+
+      await client.query('COMMIT');
+
+      return result.rows[0];
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async close() {

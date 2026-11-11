@@ -10,7 +10,9 @@ const router = Router();
 router.route('/')
   .get(searchPackages)
   .post(clerkMiddleware(), (req, res, next) => {
-    if (!getAuth(req).isAuthenticated) {
+    const auth = getAuth(req);
+
+    if (!auth.isAuthenticated || !auth.userId) {
       res.set('WWW-Authenticate', 'Bearer');
       res.status(401).json({ error: 'Authentication required' });
       return;
@@ -24,6 +26,14 @@ router.route('/')
     }
 
     const body = publishBody.parse(req.body);
+    const userId = getAuth(req).userId!;
+    const ownerId = await database.getOwnerId(body.name);
+
+    if (ownerId !== undefined && ownerId !== userId) {
+      res.status(403).json({ error: 'Only the package owner can publish versions' });
+      return;
+    }
+
     const existing = await database.getVersion(body.name, body.version);
 
     if (existing) {
@@ -32,7 +42,7 @@ router.route('/')
     }
 
     const dist = await s3.uploadPackage(body);
-    const metadata = await database.publishPackage(body, dist);
+    const metadata = await database.publishPackage(body, dist, userId);
 
     if (!metadata) {
       res.status(409).json({ error: 'This version is already published' });

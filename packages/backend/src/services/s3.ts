@@ -1,9 +1,10 @@
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { createHash } from 'node:crypto';
+import type { Readable } from 'node:stream';
 import { buffer } from 'node:stream/consumers';
 import { pipeline } from 'node:stream/promises';
-import { createGzip } from 'node:zlib';
-import { pack } from 'tar-stream';
+import { createGunzip, createGzip } from 'node:zlib';
+import { extract, pack } from 'tar-stream';
 import { env } from '../config.ts';
 import type { PackageDistribution } from '../types.ts';
 import type { PublishBody } from '../validation.ts';
@@ -59,6 +60,23 @@ class S3Manager {
       Bucket: env.AWS_S3_BUCKET_NAME,
       Key: `claw/packages/${digest.toString('hex')}.tgz`
     }));
+  }
+
+  async getFiles(dist: PackageDistribution): Promise<Record<string, string>> {
+    const object = await this.downloadPackage(dist);
+    const archive = extract();
+    const files: Record<string, string> = {};
+
+    archive.on('entry', (header, stream, next) => {
+      buffer(stream).then(content => {
+        files[header.name] = content.toString('utf8');
+        next();
+      }, error => archive.destroy(error));
+    });
+
+    await pipeline(object.Body as Readable, createGunzip(), archive);
+
+    return files;
   }
 
   close() {

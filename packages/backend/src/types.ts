@@ -9,6 +9,13 @@ export interface PackageVersion {
   version: string;
   description: string;
   main: string;
+  readme: string;
+  license: string;
+  repository: string;
+  homepage: string;
+  keywords: string[];
+  dependencies: Record<string, string>;
+  publisherId: string | null;
   dist: PackageDistribution;
   publishedAt: Date;
 }
