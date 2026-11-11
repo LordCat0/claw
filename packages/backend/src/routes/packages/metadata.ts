@@ -20,7 +20,7 @@ router.route('/:name').get(async (req, res) => {
     ...metadata,
     description: release!.description,
     main: release!.main,
-    files: release!.files,
+    dist: release!.dist,
     publishedAt: release!.publishedAt
   });
 });

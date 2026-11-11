@@ -1,7 +1,7 @@
-export interface PackageFile {
-  path: string;
+export interface PackageDistribution {
+  tarball: string;
+  integrity: string;
   size: number;
-  sha256: string;
 }
 
 export interface PackageVersion {
@@ -9,6 +9,6 @@ export interface PackageVersion {
   version: string;
   description: string;
   main: string;
-  files: PackageFile[];
+  dist: PackageDistribution;
   publishedAt: Date;
 }

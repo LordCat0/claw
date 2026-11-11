@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import database from '../../services/database.ts';
-import { packageName } from '../../validation.ts';
+import { packageName, requestedVersion } from '../../validation.ts';
 
 const router = Router();
 
 router.route('/:name/:version').get(async (req, res) => {
   const name = packageName.parse(req.params.name);
-  const metadata = await database.getVersion(name, req.params.version);
+  const version = requestedVersion.parse(req.params.version);
+  const metadata = await database.getVersion(name, version);
 
   if (!metadata) {
     res.status(404).json({ error: 'Package version not found' });

@@ -1,7 +1,12 @@
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { createHash } from 'node:crypto';
+import { buffer } from 'node:stream/consumers';
+import { pipeline } from 'node:stream/promises';
+import { createGzip } from 'node:zlib';
+import { pack } from 'tar-stream';
 import { env } from '../config.ts';
-import type { PackageFile } from '../types.ts';
+import type { PackageDistribution } from '../types.ts';
+import type { PublishBody } from '../validation.ts';
 
 class S3Manager {
   client: S3Client;
@@ -17,39 +22,44 @@ class S3Manager {
     });
   }
 
-  async uploadFiles(files: Record<string, string>): Promise<PackageFile[]> {
-    const metadata: PackageFile[] = [];
+  async uploadPackage(body: PublishBody): Promise<PackageDistribution> {
+    const archive = pack();
+    const compressed = pipeline(archive, createGzip(), buffer);
 
-    for (const [path, source] of Object.entries(files)) {
-      const body = Buffer.from(source, 'utf8');
-      const sha256 = createHash('sha256').update(body).digest('hex');
-
-      await this.client.send(new PutObjectCommand({
-        Bucket: env.AWS_S3_BUCKET_NAME,
-        Key: `claw/${sha256}.claw`,
-        Body: body,
-        ContentType: 'text/plain; charset=utf-8'
-      }));
-
-      metadata.push({
-        path,
-        size: body.length,
-        sha256
-      });
+    for (const [path, source] of Object.entries(body.files)) {
+      archive.entry({
+        name: path,
+        mtime: new Date(0)
+      }, source);
     }
 
-    return metadata;
-  }
+    archive.finalize();
 
-  async downloadFile(file: PackageFile): Promise<Buffer> {
-    const result = await this.client.send(new GetObjectCommand({
+    const content = await compressed;
+    const digest = createHash('sha512').update(content).digest();
+
+    await this.client.send(new PutObjectCommand({
       Bucket: env.AWS_S3_BUCKET_NAME,
-      Key: `claw/${file.sha256}.claw`
+      Key: `claw/packages/${digest.toString('hex')}.tgz`,
+      Body: content,
+      ContentType: 'application/gzip'
     }));
 
-    return Buffer.from(await result.Body!.transformToByteArray());
+    return {
+      tarball: `/packages/${body.name}/${body.version}/download`,
+      integrity: `sha512-${digest.toString('base64')}`,
+      size: content.length
+    };
   }
 
+  async downloadPackage(dist: PackageDistribution) {
+    const digest = Buffer.from(dist.integrity.slice(7), 'base64');
+
+    return this.client.send(new GetObjectCommand({
+      Bucket: env.AWS_S3_BUCKET_NAME,
+      Key: `claw/packages/${digest.toString('hex')}.tgz`
+    }));
+  }
 
   close() {
     this.client.destroy();

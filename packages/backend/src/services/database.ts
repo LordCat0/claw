@@ -1,7 +1,7 @@
 import { Pool } from 'pg';
 import { maxSatisfying, rcompare } from 'semver';
 import { env } from '../config.ts';
-import type { PackageFile, PackageVersion } from '../types.ts';
+import type { PackageDistribution, PackageVersion } from '../types.ts';
 import type { PublishBody } from '../validation.ts';
 
 class DatabaseManager {
@@ -26,7 +26,7 @@ class DatabaseManager {
         version TEXT NOT NULL,
         description TEXT NOT NULL,
         main TEXT NOT NULL,
-        files JSONB NOT NULL,
+        dist JSONB NOT NULL,
         published_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         PRIMARY KEY (name, version)
       );
@@ -130,7 +130,7 @@ class DatabaseManager {
     }
 
     const result = await this.pool.query<PackageVersion>(`
-      SELECT name, version, description, main, files,
+      SELECT name, version, description, main, dist,
         published_at AS "publishedAt"
       FROM package_versions
       WHERE name = $1 AND version = $2
@@ -141,20 +141,20 @@ class DatabaseManager {
 
   async publishPackage(
     body: PublishBody,
-    files: PackageFile[]
+    dist: PackageDistribution
   ): Promise<PackageVersion | undefined> {
     const result = await this.pool.query<PackageVersion>(`
-      INSERT INTO package_versions (name, version, description, main, files)
+      INSERT INTO package_versions (name, version, description, main, dist)
       VALUES ($1, $2, $3, $4, $5)
       ON CONFLICT (name, version) DO NOTHING
-      RETURNING name, version, description, main, files,
+      RETURNING name, version, description, main, dist,
         published_at AS "publishedAt"
     `, [
       body.name,
       body.version,
       body.description,
       body.main,
-      JSON.stringify(files)
+      JSON.stringify(dist)
     ]);
 
     return result.rows[0];

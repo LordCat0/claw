@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import type { ErrorRequestHandler } from 'express';
 import { ZodError } from 'zod';
-import cdnRouter from './routes/cdn/download.ts';
 import discoveryRouter from './routes/discovery.ts';
 import healthRouter from './routes/health/check.ts';
 import collectionRouter from './routes/packages/collection.ts';
@@ -34,7 +33,6 @@ app.use(
   versionRouter,
   packageDownloadRouter
 );
-app.use('/cdn', cdnRouter);
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Route not found' });
@@ -44,8 +42,15 @@ const handleError: ErrorRequestHandler = (
   error: unknown,
   _req,
   res,
-  _next
+  next
 ) => {
+  if (res.headersSent) {
+    next(error);
+    return;
+  }
+
+  res.set('Cache-Control', 'no-store');
+
   if (error instanceof ZodError) {
     res.status(400).json({
       error: 'Invalid request',

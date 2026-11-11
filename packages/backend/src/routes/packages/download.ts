@@ -1,32 +1,49 @@
 import { Router } from 'express';
+import type { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import database from '../../services/database.ts';
 import s3 from '../../services/s3.ts';
-import { env } from '../../config.ts';
-import { packageName } from '../../validation.ts';
+import { packageName, requestedVersion } from '../../validation.ts';
 
 const router = Router();
 
 router.route('/:name/:version/download').get(async (req, res) => {
   const name = packageName.parse(req.params.name);
-  const metadata = await database.getVersion(name, req.params.version);
+  const version = requestedVersion.parse(req.params.version);
+  const metadata = await database.getVersion(name, version);
 
   if (!metadata) {
     res.status(404).json({ error: 'Package version not found' });
     return;
   }
 
-  const files: Record<string, string> = {};
+  res.set({
+    'Cache-Control': version === 'latest'
+      ? 'public, max-age=60'
+      : 'public, max-age=31536000, immutable',
+    'ETag': `"${metadata.dist.integrity}"`
+  });
 
-  for (const file of metadata.files) {
-    const body = await s3.downloadFile(file);
-    files[file.path] = body.toString('utf8');
+  if (req.fresh) {
+    res.status(304).end();
+    return;
   }
 
-  res.attachment(`${name}-${metadata.version}.json`);
-  res.json({
-    ...metadata,
-    files
+  const archive = req.method === 'HEAD'
+    ? undefined
+    : await s3.downloadPackage(metadata.dist);
+
+  res.attachment(`${name}-${metadata.version}.tgz`);
+  res.set({
+    'Content-Type': 'application/gzip',
+    'Content-Length': String(metadata.dist.size)
   });
+  if (!archive) {
+    res.end();
+    return;
+  }
+
+  await pipeline(archive.Body as Readable, res);
 });
 
 export default router;

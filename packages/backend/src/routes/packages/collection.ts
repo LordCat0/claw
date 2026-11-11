@@ -37,8 +37,8 @@ router.route('/')
       return;
     }
 
-    const files = await s3.uploadFiles(body.files);
-    const metadata = await database.publishPackage(body, files);
+    const dist = await s3.uploadPackage(body);
+    const metadata = await database.publishPackage(body, dist);
 
     if (!metadata) {
       res.status(409).json({ error: 'This version is already published' });
