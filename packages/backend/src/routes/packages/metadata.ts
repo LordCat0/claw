@@ -15,13 +15,15 @@ router.route('/:name').get(async (req, res) => {
 
   const latest = metadata.latest || metadata.versions[0];
   const release = await database.getVersion(name, latest);
+  const downloads = await database.getDownloads([name]);
 
   res.json({
     ...metadata,
     description: release!.description,
     main: release!.main,
     dist: release!.dist,
-    publishedAt: release!.publishedAt
+    publishedAt: release!.publishedAt,
+    downloads: downloads[name]
   });
 });
 

@@ -12,3 +12,13 @@ export interface PackageVersion {
   dist: PackageDistribution;
   publishedAt: Date;
 }
+
+export interface PackageDownloads {
+  start: string;
+  end: string;
+  total: number;
+  daily: {
+    date: string;
+    downloads: number;
+  }[];
+}

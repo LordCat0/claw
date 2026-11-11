@@ -17,18 +17,6 @@ router.route('/:name/:version/download').get(async (req, res) => {
     return;
   }
 
-  res.set({
-    'Cache-Control': version === 'latest'
-      ? 'public, max-age=60'
-      : 'public, max-age=31536000, immutable',
-    'ETag': `"${metadata.dist.integrity}"`
-  });
-
-  if (req.fresh) {
-    res.status(304).end();
-    return;
-  }
-
   const archive = req.method === 'HEAD'
     ? undefined
     : await s3.downloadPackage(metadata.dist);
@@ -44,6 +32,7 @@ router.route('/:name/:version/download').get(async (req, res) => {
   }
 
   await pipeline(archive.Body as Readable, res);
+  await database.recordDownload(name);
 });
 
 export default router;

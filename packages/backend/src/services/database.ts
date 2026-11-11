@@ -1,7 +1,11 @@
 import { Pool } from 'pg';
 import { maxSatisfying, rcompare } from 'semver';
 import { env } from '../config.ts';
-import type { PackageDistribution, PackageVersion } from '../types.ts';
+import type {
+  PackageDistribution,
+  PackageDownloads,
+  PackageVersion
+} from '../types.ts';
 import type { PublishBody } from '../validation.ts';
 
 class DatabaseManager {
@@ -29,6 +33,13 @@ class DatabaseManager {
         dist JSONB NOT NULL,
         published_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         PRIMARY KEY (name, version)
+      );
+
+      CREATE TABLE IF NOT EXISTS package_downloads (
+        name TEXT NOT NULL,
+        day DATE NOT NULL,
+        downloads BIGINT NOT NULL DEFAULT 0,
+        PRIMARY KEY (name, day)
       );
     `);
   }
@@ -82,7 +93,53 @@ class DatabaseManager {
         ), '[]'::JSON) AS packages
     `, [query.q, query.limit, query.offset, query.sort]);
 
-    return result.rows[0];
+    const page = result.rows[0];
+    const downloads = await this.getDownloads(page.packages.map(pkg => pkg.name));
+
+    return {
+      ...page,
+      packages: page.packages.map(pkg => ({
+        ...pkg,
+        downloads: downloads[pkg.name]
+      }))
+    };
+  }
+
+  async recordDownload(name: string) {
+    await this.pool.query(`
+      INSERT INTO package_downloads (name, day, downloads)
+      VALUES ($1, (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::DATE, 1)
+      ON CONFLICT (name, day)
+      DO UPDATE SET downloads = package_downloads.downloads + 1
+    `, [name]);
+  }
+
+  async getDownloads(names: string[]): Promise<Record<string, PackageDownloads>> {
+    const result = await this.pool.query<{
+      name: string;
+      downloads: PackageDownloads;
+    }>(`
+      WITH days AS (
+        SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::DATE - days_ago AS day
+        FROM GENERATE_SERIES(1, 7) AS series(days_ago)
+      )
+      SELECT package.name, JSON_BUILD_OBJECT(
+        'start', TO_CHAR(MIN(days.day), 'YYYY-MM-DD'),
+        'end', TO_CHAR(MAX(days.day), 'YYYY-MM-DD'),
+        'total', SUM(COALESCE(counts.downloads, 0))::DOUBLE PRECISION,
+        'daily', JSON_AGG(JSON_BUILD_OBJECT(
+          'date', TO_CHAR(days.day, 'YYYY-MM-DD'),
+          'downloads', COALESCE(counts.downloads, 0)::DOUBLE PRECISION
+        ) ORDER BY days.day)
+      ) AS downloads
+      FROM UNNEST($1::TEXT[]) AS package(name)
+      CROSS JOIN days
+      LEFT JOIN package_downloads counts
+        ON counts.name = package.name AND counts.day = days.day
+      GROUP BY package.name
+    `, [names]);
+
+    return Object.fromEntries(result.rows.map(row => [row.name, row.downloads]));
   }
 
   async getStats() {
