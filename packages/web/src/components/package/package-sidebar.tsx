@@ -3,7 +3,7 @@ import { Avatar } from '@base-ui/react/avatar';
 import { Check, Copy, Download, GitFork, Link, Terminal } from 'lucide-preact';
 import { useMemo, useState } from 'preact/hooks';
 import { Sparklines, SparklinesLine } from 'react-sparklines';
-import type { PackageMetadata } from '../../types/package';
+import type { PackageMetadata } from 'shared';
 import { theme } from '../../styles/theme.css';
 import * as styles from './package-sidebar.css';
 

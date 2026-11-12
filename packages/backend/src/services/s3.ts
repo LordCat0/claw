@@ -6,7 +6,7 @@ import { pipeline } from 'node:stream/promises';
 import { createGunzip, createGzip } from 'node:zlib';
 import { extract, pack } from 'tar-stream';
 import { env } from '../config.ts';
-import type { PackageDistribution } from '../types.ts';
+import type { PackageDistribution } from 'shared';
 import type { PublishBody } from '../validation.ts';
 
 class S3Manager {

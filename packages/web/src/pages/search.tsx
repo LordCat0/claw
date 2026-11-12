@@ -4,7 +4,7 @@ import { route } from 'preact-router';
 import Header from '../components/header/header';
 import PackageListItem from '../components/package-list-item/package-list-item';
 import { env } from '../config';
-import type { SearchResponse } from '../types/search';
+import type { SearchResponse } from 'shared';
 import * as styles from './search.css';
 
 interface SearchProps {

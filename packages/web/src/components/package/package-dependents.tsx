@@ -2,7 +2,7 @@ import { Button } from '@base-ui/react/button';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'preact/hooks';
 import { env } from '../../config';
-import type { PackageDependentsResponse } from '../../types/package';
+import type { PackageDependentsResponse } from 'shared';
 import * as styles from '../../pages/package.css';
 
 interface PackageDependentsProps {

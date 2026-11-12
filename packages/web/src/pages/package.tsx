@@ -8,7 +8,7 @@ import PackageDependents from '../components/package/package-dependents';
 import PackageReadme from '../components/package/package-readme';
 import PackageSidebar from '../components/package/package-sidebar';
 import { env } from '../config';
-import type { PackageMetadata } from '../types/package';
+import type { PackageMetadata } from 'shared';
 import * as styles from './package.css';
 
 interface PackageProps {

@@ -5,8 +5,10 @@ import { env } from '../config.ts';
 import type {
   PackageDistribution,
   PackageDownloads,
-  PackageVersion
-} from '../types.ts';
+  PackageVersion,
+  PackageDependentsResponse,
+  SearchResponse
+} from 'shared';
 import type { PublishBody } from '../validation.ts';
 
 class DatabaseManager {
@@ -61,16 +63,7 @@ class DatabaseManager {
       offset: number;
     }
   ) {
-    const result = await this.pool.query<{
-      packages: {
-        name: string;
-        version: string;
-        description: string;
-        publishedAt: string;
-        versions: number;
-      }[];
-      total: number;
-    }>(`
+    const result = await this.pool.query<SearchResponse>(`
       WITH summaries AS (
         SELECT DISTINCT ON (name)
           name, version, description, published_at AS "publishedAt",
@@ -196,15 +189,7 @@ class DatabaseManager {
   }
 
   async getDependents(name: string, limit: number, offset: number) {
-    const result = await this.pool.query<{
-      total: number;
-      packages: {
-        name: string;
-        version: string;
-        description: string;
-        publishedAt: string;
-      }[];
-    }>(`
+    const result = await this.pool.query<PackageDependentsResponse>(`
       WITH summaries AS (
         SELECT DISTINCT ON (name)
           name, version, description, dependencies,

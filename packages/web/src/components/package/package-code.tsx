@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ChevronRight, FileCode, Folder } from 'lucide-preact';
 import { useMemo, useState } from 'preact/hooks';
 import { env } from '../../config';
-import type { PackageFilesResponse } from '../../types/package';
+import type { PackageFilesResponse } from 'shared';
 import * as packageStyles from '../../pages/package.css';
 import * as styles from './package-code.css';
 

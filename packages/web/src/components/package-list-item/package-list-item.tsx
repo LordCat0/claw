@@ -1,5 +1,5 @@
 import { Clock3, Package, Tag } from 'lucide-preact';
-import type { SearchPackage } from '../../types/search';
+import type { SearchPackage } from 'shared';
 import * as styles from './package-list-item.css';
 
 interface PackageListItemProps {
