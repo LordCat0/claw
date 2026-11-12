@@ -36,6 +36,12 @@ export interface PackageMetadata {
   };
 }
 
+export interface PackageFilesResponse {
+  name: string;
+  version: string;
+  files: Record<string, string>;
+}
+
 export interface PackageDependentsResponse {
   total: number;
   packages: {

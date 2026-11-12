@@ -1,8 +1,9 @@
 import { Button } from '@base-ui/react/button';
 import { Tabs } from '@base-ui/react/tabs';
 import { useQuery } from '@tanstack/react-query';
-import { BookOpen, Boxes, Package as PackageIcon, Tags } from 'lucide-preact';
+import { BookOpen, Boxes, Code, Package as PackageIcon, Tags } from 'lucide-preact';
 import Header from '../components/header/header';
+import PackageCode from '../components/package/package-code';
 import PackageDependents from '../components/package/package-dependents';
 import PackageReadme from '../components/package/package-readme';
 import PackageSidebar from '../components/package/package-sidebar';
@@ -85,6 +86,9 @@ export default function Package(props: PackageProps) {
                 <Tabs.Tab className={styles.tab} value="readme">
                   <BookOpen size={17} aria-hidden="true" /> Readme
                 </Tabs.Tab>
+                <Tabs.Tab className={styles.tab} value="code">
+                  <Code size={17} aria-hidden="true" /> Code
+                </Tabs.Tab>
                 <Tabs.Tab className={styles.tab} value="dependencies">
                   <PackageIcon size={17} aria-hidden="true" />
                   {pkg.dependencyCount.toLocaleString()} Dependencies
@@ -119,6 +123,13 @@ export default function Package(props: PackageProps) {
                         </div>
                       </section>
                     )}
+                  </Tabs.Panel>
+                  <Tabs.Panel value="code">
+                    <PackageCode
+                      key={`${pkg.name}@${pkg.version}`}
+                      name={pkg.name}
+                      version={pkg.version}
+                    />
                   </Tabs.Panel>
                   <Tabs.Panel value="dependencies">
                     <h2 className={styles.subheading}>Dependencies</h2>
