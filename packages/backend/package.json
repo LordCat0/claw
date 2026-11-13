@@ -17,7 +17,7 @@
     "start": "node --env-file-if-exists=.env dist/index.js",
     "dev": "node --watch --env-file-if-exists=.env src/index.ts"
   },
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1166.0",
     "@clerk/express": "2.1.88",

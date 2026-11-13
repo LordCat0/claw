@@ -9,5 +9,6 @@
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "start": "npm run start --workspace=compiler"
-  }
+  },
+  "license": "GPL-3.0-only"
 }
