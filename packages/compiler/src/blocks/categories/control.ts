@@ -12,25 +12,76 @@ export default {
           DURATION: inputs[0]
         }
       })
-    },
+    }
+  },
+  project: {
     stop: {
       kind: 'function',
       blockType: 'command',
-      args: ['field'],
-      create: ({ fields }) => ({
+      args: [],
+      create: () => ({
         opcode: 'control_stop',
         fields: {
-          STOP_OPTION: fields[0]
+          STOP_OPTION: ['all', null]
         },
         mutation: {
           tagName: 'mutation',
           children: [],
-          hasnext: fields[0][0] === 'other scripts in sprite'
+          hasnext: false
+        }
+      })
+    },
+    createClone: {
+      kind: 'function',
+      blockType: 'command',
+      args: [10],
+      create: ({ inputs, fields }, compiler) => ({
+        opcode: 'control_create_clone_of',
+        inputs: {
+          CLONE_OPTION: compiler.menu(
+            'control_create_clone_of_menu',
+            'CLONE_OPTION',
+            fields[0], inputs[0]
+          )
+        }
+      })
+    }
+  },
+  thread: {
+    stop: {
+      kind: 'function',
+      blockType: 'command',
+      args: [],
+      create: () => ({
+        opcode: 'control_stop',
+        fields: {
+          STOP_OPTION: ['this script', null]
+        },
+        mutation: {
+          tagName: 'mutation',
+          children: [],
+          hasnext: false
         }
       })
     }
   },
   sprite: {
+    stopOtherThreads: {
+      kind: 'function',
+      blockType: 'command',
+      args: [],
+      create: () => ({
+        opcode: 'control_stop',
+        fields: {
+          STOP_OPTION: ['other scripts in sprite', null]
+        },
+        mutation: {
+          tagName: 'mutation',
+          children: [],
+          hasnext: true
+        }
+      })
+    },
     whenCloned: {
       kind: 'function',
       blockType: 'hat',
@@ -44,12 +95,15 @@ export default {
     createClone: {
       kind: 'function',
       blockType: 'command',
-      args: [10],
-      create: ({ inputs, fields }, compiler) => ({
+      args: [],
+      create: (_, compiler) => ({
         opcode: 'control_create_clone_of',
         inputs: {
           CLONE_OPTION: compiler.menu(
-            'control_create_clone_of_menu', 'CLONE_OPTION', fields[0], inputs[0]
+            'control_create_clone_of_menu',
+            'CLONE_OPTION',
+            ['_myself_', null],
+            null
           )
         }
       })

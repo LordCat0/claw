@@ -61,9 +61,7 @@ export default {
           DRAG_MODE: fields[0]
         }
       })
-    }
-  },
-  project: {
+    },
     ask: {
       kind: 'function',
       blockType: 'command',
@@ -74,7 +72,9 @@ export default {
           QUESTION: inputs[0]
         }
       })
-    },
+    }
+  },
+  project: {
     answer: {
       kind: 'variable',
       get: {

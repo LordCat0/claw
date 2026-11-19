@@ -257,7 +257,7 @@ function* collect() {
 
 function* stopOthers() {
   enter();
-  stop("other scripts in sprite");
+  sprite.stopOtherThreads();
   leave();
 }
 
@@ -675,7 +675,7 @@ function* splice(array, inputStart, inputCount, items) {
 
 function* fail(message) {
   print(message);
-  stop("all");
+  project.stop();
 }
 
 function* check(array) {

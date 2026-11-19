@@ -35,6 +35,7 @@ export const globals: Bindings = {
   project: {
     kind: 'object',
     members: {
+      ...control.project,
       ...looks.project,
       ...sound.project,
       ...events.project,
@@ -51,6 +52,10 @@ export const globals: Bindings = {
       ...control.sprite,
       ...sensing.sprite
     }
+  },
+  thread: {
+    kind: 'object',
+    members: control.thread
   }
 };
 

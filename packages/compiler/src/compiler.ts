@@ -19,6 +19,7 @@ import {
   arrayResults,
   numericFunctions
 } from './blocks/categories/arrays.ts';
+import control from './blocks/categories/control.ts';
 import listVariable from './util/list-variable.ts';
 import {
   globals,
@@ -83,6 +84,7 @@ class Compiler {
   private _booleanInputs: Record<string, boolean>;
   private _arrayInputs: Record<string, ScratchInput>;
   private _programs: Record<string, Program>;
+  private _usesThread: boolean;
   private _lists: Record<string, [string, string]>;
   private _rootCount: number;
   private _frameSizes: number[];
@@ -153,6 +155,7 @@ class Compiler {
     this._booleanInputs = {};
     this._arrayInputs = {};
     this._programs = {};
+    this._usesThread = false;
     Object.assign(this._globals.bindings, globals);
   }
 
@@ -205,10 +208,16 @@ class Compiler {
   }
 
   append (scope: Scope, block: BlockOptions) {
-    const id = this.insertBlock(block, scope.lastBlock);
+    const previous = this.endsWithStop(scope) ? null : scope.lastBlock;
+    const id = this.insertBlock(block, previous);
     scope.firstBlock = scope.firstBlock || id;
     scope.lastBlock = id;
     return id;
+  }
+
+  endsWithStop (scope: Scope) {
+    const last = this.root.blocks[scope.lastBlock];
+    return last?.opcode === 'control_stop' && last.mutation?.hasnext === false;
   }
 
   number (value: number): ScratchInput {
@@ -306,6 +315,27 @@ class Compiler {
 
     if (scope.firstBlock) {
       this.root.blocks[scope.firstBlock].parent = parent;
+    }
+  }
+
+  appendEndBlock (scope: Scope, block: BlockOptions, condition?: ScratchInput) {
+    const branch = condition && this.append(scope, {
+      opcode: 'control_if',
+      inputs: {
+        CONDITION: condition
+      }
+    });
+    const body = branch ? scope.createChild() : scope;
+
+    if (scope.frame?.canStop && block.opcode === 'control_stop' &&
+        block.fields.STOP_OPTION[0] === 'this script') {
+      this.write(scope.frame.stopFlag(), this.number(1), body);
+    }
+
+    this.append(body, block);
+
+    if (branch) {
+      this.attachSubstack(branch, 'SUBSTACK', body);
     }
   }
 
@@ -879,25 +909,28 @@ class Compiler {
       return value;
     }
 
-    if (block.opcode === 'control_delete_this_clone' ||
-        (block.opcode === 'control_stop' && block.mutation.hasnext === false)) {
-      // End blocks need a branch so later commands can connect
-      const branch = this.append(scope, {
-        opcode: 'control_if',
-        inputs: {
-          CONDITION: this.booleanLiteral(true)
-        }
-      });
-      const body = scope.createChild();
-      this.append(body, block);
-      this.attachSubstack(branch, 'SUBSTACK', body);
+    if (block.opcode === 'control_delete_this_clone') {
+      this.appendEndBlock(scope, block, this.booleanLiteral(true));
+    } else if (block.opcode === 'control_stop' && block.mutation.hasnext === false) {
+      this.appendEndBlock(scope, block);
     } else {
       this.append(scope, block);
     }
 
     if (procedure?.frame) {
-      const result = asValue ? this.capture(procedure.frame.readResult(frameIndex), scope) : null;
-      await procedure.frame.release(scope, frameIndex);
+      const frame = procedure.frame;
+      const stopped = frame.canStop
+        ? this.capture(this.read(frame.stopFlag(frameIndex)), scope)
+        : null;
+      const result = asValue ? this.capture(frame.readResult(frameIndex), scope) : null;
+      await frame.release(scope, frameIndex);
+
+      if (stopped) {
+        this.appendEndBlock(
+          scope, control.thread.stop.create(), this.equals(stopped, this.number(1))
+        );
+      }
+
       return result || scope.lastBlock;
     }
 
@@ -1548,9 +1581,7 @@ class Compiler {
     await this.parseASTBody(body, bodyScope);
     await this.releaseScope(bodyScope);
 
-    const lastBlock = bodyScope.lastBlock && this.root.blocks[bodyScope.lastBlock];
-
-    if (!lastBlock || lastBlock.opcode !== 'control_stop' || lastBlock.mutation?.hasnext !== false) {
+    if (!this.endsWithStop(bodyScope)) {
       // Use loop bindings for updates and conditions
       const tailScope = scope.createChild();
       tailScope.lastBlock = state ? null : bodyScope.lastBlock;
@@ -1569,7 +1600,7 @@ class Compiler {
         })], tailScope);
       }
 
-      if (condition) {
+      if (condition && !this.endsWithStop(tailScope)) {
         const nextTest = await this.parseExpression(testExpression, tailScope, true);
         this.write(condition, this.boolean(nextTest), tailScope);
       }
@@ -1718,7 +1749,11 @@ class Compiler {
         const forScope = scope.createChild();
         forScope.lastBlock = scope.lastBlock;
         await this.parseStatement(statement.init, forScope);
-        await this.parseLoop(statement, forScope);
+
+        if (!this.endsWithStop(forScope)) {
+          await this.parseLoop(statement, forScope);
+        }
+
         await this.releaseScope(forScope);
         scope.firstBlock = scope.firstBlock || forScope.firstBlock;
         scope.lastBlock = forScope.lastBlock;
@@ -1766,17 +1801,7 @@ class Compiler {
           ? await this.parseExpression(statement.value, scope, true)
           : [1, [10, '']] as ScratchInput;
         this.write(scope.result, value, scope);
-        return this.append(scope, {
-          opcode: 'control_stop',
-          fields: {
-            STOP_OPTION: ['this script', null]
-          },
-          mutation: {
-            tagName: 'mutation',
-            hasnext: false,
-            children: []
-          }
-        });
+        return this.append(scope, control.thread.stop.create());
       }
       case NodeType.ImportStatement: {
         if (scope.parent !== this._globals) {
@@ -1891,8 +1916,10 @@ class Compiler {
       create: (args, compiler) => create(args, compiler),
       compile: async () => {
         const funcScope = scope.createChild(true);
-        funcScope.frame = !binding.shared && (this.arrays || this.needsFrame(expression.body))
-          ? new CallFrame(this)
+        const canStop = this._usesThread && (!scope.internal || name === 'transform');
+        funcScope.frame = !binding.shared &&
+          (canStop || this.arrays || this.needsFrame(expression.body))
+          ? new CallFrame(this, canStop)
           : null;
         funcScope.referenceVariables = binding.referenceVariables || [];
 
@@ -1949,6 +1976,10 @@ class Compiler {
           }
         });
 
+        if (funcScope.frame?.canStop) {
+          this.write(funcScope.frame.stopFlag(), this.number(0), funcScope);
+        }
+
         if (funcScope.frame) {
           this.write(funcScope.result, [1, [10, '']], funcScope);
         }
@@ -1993,10 +2024,9 @@ class Compiler {
       const values = scope.temporaries.values;
       const next = scope.temporaries.next;
       await this.parseStatement(statement, scope);
-      const last = this.root.blocks[scope.lastBlock];
-      const returned = last?.opcode === 'control_stop' && last.mutation?.hasnext === false;
+      const stopped = this.endsWithStop(scope);
 
-      if (this.arrays && !returned && scope.temporaries.values === values) {
+      if (this.arrays && !stopped && scope.temporaries.values === values) {
         for (const variable of values.slice(next, scope.temporaries.next)) {
           if (variable.reference && !variable.scalar) {
             await this.clearReference(variable.reference, scope);
@@ -2006,7 +2036,8 @@ class Compiler {
 
       scope.temporaries.next = scope.temporaries.values === values ? next : 0;
 
-      if (returned || statement.type === NodeType.BreakStatement ||
+      if ((stopped && scope.parent !== this._globals) ||
+          statement.type === NodeType.BreakStatement ||
           statement.type === NodeType.ContinueStatement) {
         break;
       }
@@ -2051,13 +2082,7 @@ class Compiler {
   }
 
   async releaseScope (scope: Scope) {
-    if (!this.arrays) {
-      return;
-    }
-
-    const last = this.root.blocks[scope.lastBlock];
-
-    if (last?.opcode === 'control_stop' && last.mutation?.hasnext === false) {
+    if (!this.arrays || this.endsWithStop(scope)) {
       return;
     }
 
@@ -2151,6 +2176,16 @@ class Compiler {
     });
   }
 
+  usesThread (node: Program | Statement | Expression | Block): boolean {
+    if (node.type === NodeType.Identifier && node.name === 'thread') {
+      return true;
+    }
+
+    return Object.values(node).flat().some(value => {
+      return value && typeof value === 'object' && this.usesThread(value);
+    });
+  }
+
   async compileFile (filePath: string, internal = false) {
     const ast = this.loadPrograms(filePath);
     filePath = fs.realpathSync(filePath);
@@ -2206,7 +2241,9 @@ class Compiler {
   async compile (filePath: string) {
     this.loadPrograms(path.resolve(filePath));
 
-    this.arrays = Object.values(this._programs).some(program => this.usesArrays(program));
+    const programs = Object.values(this._programs);
+    this.arrays = programs.some(program => this.usesArrays(program));
+    this._usesThread = programs.some(program => this.usesThread(program));
     this.builtins = await this.compileFile(
       fileURLToPath(new URL('./internal/arrays.claw', import.meta.url)), true
     );
