@@ -47,6 +47,7 @@ import {
   type CallArguments,
   type FunctionDeclaration,
   type FunctionExpression,
+  type SwitchStatement,
   type WhileStatement,
   type RepeatStatement,
   type ForStatement,
@@ -399,7 +400,7 @@ class Compiler {
     }, this));
   }
 
-  capture (value: ScratchInput, scope: Scope): ScratchInput {
+  capture (value: ScratchInput, scope: Scope, target?: VariableBinding): ScratchInput {
     if (value[0] === 1 && Array.isArray(value[1])) {
       return value;
     }
@@ -408,7 +409,7 @@ class Compiler {
       return value;
     }
 
-    const variable = this.temporary(scope, this.isScalar(value));
+    const variable = target || this.temporary(scope, this.isScalar(value));
     this.write(variable, value, scope);
     return this.read(variable);
   }
@@ -478,12 +479,31 @@ class Compiler {
     return this.reporter('operator_not', { OPERAND: value });
   }
 
+  equals (left: ScratchInput, right: ScratchInput): ScratchInput {
+    const value = this.reporter('operator_equals', {
+      OPERAND1: left,
+      OPERAND2: right
+    });
+
+    if (!this.arrays || (this.isScalar(left) && this.isScalar(right))) {
+      return value;
+    }
+
+    return this.reporter('operator_and', {
+      OPERAND1: value,
+      OPERAND2: this.reporter('operator_equals', {
+        OPERAND1: this.arrayReference(left),
+        OPERAND2: this.arrayReference(right)
+      })
+    });
+  }
+
   booleanLiteral (value: boolean): ScratchInput {
     const truth = this.reporter('operator_not');
     return value ? truth : this.not(truth);
   }
 
-  constantValue (expression: Expression, scope: Scope): Literal | null {
+  constantValue (expression: Expression, scope?: Scope): Literal | null {
     if (expression.type === NodeType.NumberLiteral ||
         expression.type === NodeType.StringLiteral ||
         expression.type === NodeType.BooleanLiteral) {
@@ -491,7 +511,7 @@ class Compiler {
     }
 
     // Functions can read captured variables before initialization
-    if (expression.type === NodeType.Identifier && !scope.isFunction) {
+    if (expression.type === NodeType.Identifier && scope && !scope.isFunction) {
       const binding = scope.resolve(expression.name);
       return binding?.kind === 'variable' ? binding.constantValue || null : null;
     }
@@ -562,6 +582,13 @@ class Compiler {
 
     if (node.type === NodeType.ExpressionStatement) {
       return this.needsFrame(node.expression, false, scope);
+    }
+
+    if (node.type === NodeType.SwitchStatement &&
+        (!this.canDispatchSwitchDirectly(node) ||
+          (!this.constantValue(node.discriminant) &&
+            node.cases.filter(clause => clause.test).length !== 1))) {
+      return true;
     }
 
     if (scope?.internal && node.type === NodeType.CallExpression &&
@@ -1043,22 +1070,12 @@ class Compiler {
         NUM1: left,
         NUM2: right
       });
+    } else if (expr.operator === '==' || expr.operator === '!=') {
+      result = this.equals(left, right);
     } else {
       result = this.reporter(comparisons[expr.operator], {
         OPERAND1: left,
         OPERAND2: right
-      });
-    }
-
-    if (this.arrays && (expr.operator === '==' || expr.operator === '!=') &&
-        (!this.isScalar(left) || !this.isScalar(right))) {
-      const sameReference = this.reporter('operator_equals', {
-        OPERAND1: this.arrayReference(left),
-        OPERAND2: this.arrayReference(right)
-      });
-      result = this.reporter('operator_and', {
-        OPERAND1: result,
-        OPERAND2: sameReference
       });
     }
 
@@ -1270,27 +1287,170 @@ class Compiler {
     }
   }
 
-  hasLoopControl (statement: Statement): boolean {
-    if (statement.type === NodeType.BreakStatement || statement.type === NodeType.ContinueStatement) {
+  hasControl (
+    statement: Statement,
+    type: NodeType.BreakStatement | NodeType.ContinueStatement
+  ): boolean {
+    if (statement.type === type) {
       return true;
+    }
+
+    if (statement.type === NodeType.Block) {
+      return statement.body.some(child => this.hasControl(child, type));
+    }
+
+    if (statement.type === NodeType.SwitchStatement) {
+      return type === NodeType.ContinueStatement &&
+        statement.cases.some(clause => clause.body.some(child => this.hasControl(child, type)));
     }
 
     if (statement.type !== NodeType.IfStatement) {
       return false;
     }
 
-    if (statement.consequent.body.some(child => this.hasLoopControl(child))) {
-      return true;
+    return this.hasControl(statement.consequent, type) ||
+      (statement.alternate !== null && this.hasControl(statement.alternate, type));
+  }
+
+  canDispatchSwitchDirectly (statement: SwitchStatement) {
+    return statement.cases.every(({ body }, index) => {
+      for (const child of body) {
+        if (child.type === NodeType.BreakStatement || child.type === NodeType.ContinueStatement ||
+            child.type === NodeType.ReturnStatement) {
+          return true;
+        }
+
+        if (this.hasControl(child, NodeType.BreakStatement)) {
+          return false;
+        }
+      }
+
+      return index === statement.cases.length - 1;
+    });
+  }
+
+  async parseSwitch (statement: SwitchStatement, scope: Scope) {
+    const { cases, discriminant } = statement;
+    const tests = cases.map(clause => clause.test).filter(test => test !== null);
+    let value = await this.parseExpression(discriminant, scope, true);
+    const state = this.canDispatchSwitchDirectly(statement) ? null : this.temporary(scope, true);
+
+    if (!this.constantValue(discriminant, scope) &&
+        (tests.length !== 1 || this.needsFrame(tests[0], true, scope))) {
+      // Once a case is selected, its index can replace the scalar discriminant
+      value = this.capture(value, scope, this.isScalar(value) ? state : null);
     }
 
-    const alternate = statement.alternate;
-    if (!alternate) {
-      return false;
+    const switchScope = scope.createChild();
+    switchScope.lastBlock = scope.lastBlock;
+    switchScope.breakState = state;
+
+    const caseScopes: Scope[] = [];
+    let matchScope = switchScope;
+    let previousBranch: string;
+    let fallback: Scope;
+
+    for (const [index, { test, body }] of cases.entries()) {
+      const caseScope = switchScope.createChild();
+      caseScope.bindings = switchScope.bindings;
+      caseScopes.push(caseScope);
+
+      const selected = state ? switchScope.createChild() : caseScope;
+      if (!tests.length) {
+        selected.lastBlock = switchScope.lastBlock;
+      }
+
+      if (state) {
+        // Negative indices allow fallthrough until break sets the state to 2
+        this.write(state, this.number(index - cases.length), selected);
+      }
+
+      let branch: string;
+      if (test) {
+        const nextTemporary = matchScope.temporaries.next;
+        const candidate = await this.parseExpression(test, matchScope, true);
+        const hasAlternate = state || tests.length < cases.length ||
+          test !== tests[tests.length - 1];
+        branch = this.append(matchScope, {
+          opcode: hasAlternate ? 'control_if_else' : 'control_if',
+          inputs: {
+            CONDITION: this.equals(value, candidate)
+          }
+        });
+
+        if (!this.arrays) {
+          // The condition has read its temporaries before either branch runs
+          matchScope.temporaries.next = nextTemporary;
+        }
+
+        if (previousBranch) {
+          this.attachSubstack(previousBranch, 'SUBSTACK2', matchScope);
+        }
+
+        previousBranch = branch;
+        matchScope = switchScope.createChild();
+      } else {
+        fallback = selected;
+      }
+
+      const breakIndex = state ? -1 : body.findIndex(child => child.type === NodeType.BreakStatement);
+      await this.parseASTBody(breakIndex === -1 ? body : body.slice(0, breakIndex), caseScope);
+
+      if (branch) {
+        this.attachSubstack(branch, 'SUBSTACK', selected);
+      }
+
+      if (!tests.length) {
+        switchScope.firstBlock = switchScope.firstBlock || selected.firstBlock;
+        switchScope.lastBlock = selected.lastBlock;
+      }
     }
 
-    return alternate.type === NodeType.Block
-      ? alternate.body.some(child => this.hasLoopControl(child))
-      : this.hasLoopControl(alternate);
+    if (state && !fallback) {
+      fallback = matchScope;
+      this.write(state, this.number(2), fallback);
+    }
+
+    if (previousBranch && fallback) {
+      this.attachSubstack(previousBranch, 'SUBSTACK2', fallback);
+    }
+
+    if (state) {
+      let canContinue = false;
+
+      for (const [index, caseScope] of caseScopes.entries()) {
+        if (!caseScope.firstBlock) {
+          continue;
+        }
+
+        let condition = this.reporter('operator_lt', {
+          OPERAND1: this.read(state),
+          OPERAND2: this.number(index - cases.length + 1)
+        });
+
+        if (canContinue) {
+          condition = this.reporter('operator_and', {
+            OPERAND1: condition,
+            OPERAND2: this.equals(this.read(scope.loopState), this.number(0))
+          });
+        }
+
+        const branch = this.append(switchScope, {
+          opcode: 'control_if',
+          inputs: {
+            CONDITION: condition
+          }
+        });
+        this.attachSubstack(branch, 'SUBSTACK', caseScope);
+        canContinue = canContinue ||
+          cases[index].body.some(child => this.hasControl(child, NodeType.ContinueStatement));
+      }
+    }
+
+    await this.releaseScope(switchScope);
+    scope.firstBlock = scope.firstBlock || switchScope.firstBlock;
+    scope.lastBlock = switchScope.lastBlock;
+    return scope.lastBlock;
   }
 
   async parseLoop (
@@ -1298,7 +1458,8 @@ class Compiler {
     scope: Scope
   ) {
     const body = statement.body.body;
-    const hasControl = body.some(statement => this.hasLoopControl(statement));
+    const hasControl = body.some(child => this.hasControl(child, NodeType.BreakStatement) ||
+      this.hasControl(child, NodeType.ContinueStatement));
 
     if (statement.type === NodeType.RepeatStatement && !hasControl) {
       const count = await this.parseExpression(statement.count, scope, true);
@@ -1316,6 +1477,7 @@ class Compiler {
     const state = hasControl ? this.temporary(scope) : null;
     const bodyScope = scope.createChild();
     bodyScope.loopState = state;
+    bodyScope.breakState = state;
     let count: VariableBinding;
     let testExpression: Expression;
     let test: ScratchInput;
@@ -1429,6 +1591,15 @@ class Compiler {
 
   async parseStatement (statement: Statement, scope: Scope): Promise<ScratchInput> {
     switch (statement.type) {
+      case NodeType.Block: {
+        const blockScope = scope.createChild();
+        blockScope.lastBlock = scope.lastBlock;
+        await this.parseASTBody(statement.body, blockScope);
+        await this.releaseScope(blockScope);
+        scope.firstBlock = scope.firstBlock || blockScope.firstBlock;
+        scope.lastBlock = blockScope.lastBlock;
+        return scope.lastBlock;
+      }
       case NodeType.Assignment: {
         if (statement.target.type === NodeType.IndexExpression ||
             (statement.target.type === NodeType.MemberExpression &&
@@ -1491,15 +1662,19 @@ class Compiler {
       }
       case NodeType.BreakStatement:
       case NodeType.ContinueStatement: {
-        const keyword = statement.type === NodeType.BreakStatement ? 'break' : 'continue';
+        const isBreak = statement.type === NodeType.BreakStatement;
+        const state = isBreak ? scope.breakState : scope.loopState;
 
-        if (!scope.loopState) {
-          throw new Error(`"${keyword}" can only be used inside a loop.`);
+        if (!state) {
+          throw new Error(isBreak
+            ? '"break" can only be used inside a loop or switch.'
+            : '"continue" can only be used inside a loop.');
         }
 
-        const value = statement.type === NodeType.BreakStatement ? 2 : 1;
-        return this.write(scope.loopState, [1, [4, value]], scope);
+        return this.write(state, this.number(isBreak ? 2 : 1), scope);
       }
+      case NodeType.SwitchStatement:
+        return this.parseSwitch(statement, scope);
       case NodeType.WhileStatement:
       case NodeType.RepeatStatement: {
         return this.parseLoop(statement, scope);
@@ -1818,9 +1993,10 @@ class Compiler {
       const values = scope.temporaries.values;
       const next = scope.temporaries.next;
       await this.parseStatement(statement, scope);
+      const last = this.root.blocks[scope.lastBlock];
+      const returned = last?.opcode === 'control_stop' && last.mutation?.hasnext === false;
 
-      if (this.arrays && statement.type !== NodeType.ReturnStatement &&
-          scope.temporaries.values === values) {
+      if (this.arrays && !returned && scope.temporaries.values === values) {
         for (const variable of values.slice(next, scope.temporaries.next)) {
           if (variable.reference && !variable.scalar) {
             await this.clearReference(variable.reference, scope);
@@ -1830,23 +2006,39 @@ class Compiler {
 
       scope.temporaries.next = scope.temporaries.values === values ? next : 0;
 
-      if (statement.type === NodeType.ReturnStatement ||
-          statement.type === NodeType.BreakStatement ||
+      if (returned || statement.type === NodeType.BreakStatement ||
           statement.type === NodeType.ContinueStatement) {
         break;
       }
 
-      if (scope.loopState && i + 1 < body.length && this.hasLoopControl(statement)) {
+      if (i + 1 === body.length) {
+        continue;
+      }
+
+      const breaks = scope.breakState && this.hasControl(statement, NodeType.BreakStatement);
+      const continues = scope.loopState && this.hasControl(statement, NodeType.ContinueStatement);
+
+      if (breaks || continues) {
+        let condition: ScratchInput;
+        if (continues || (breaks && scope.breakState === scope.loopState)) {
+          condition = this.equals(this.read(scope.loopState), this.number(0));
+        }
+
+        if (breaks && scope.breakState !== scope.loopState) {
+          const running = this.reporter('operator_lt', {
+            OPERAND1: this.read(scope.breakState),
+            OPERAND2: this.number(2)
+          });
+          condition = condition ? this.reporter('operator_and', {
+            OPERAND1: condition,
+            OPERAND2: running
+          }) : running;
+        }
+
         const guard = this.append(scope, {
           opcode: 'control_if',
           inputs: {
-            CONDITION: [2, this.insertBlock({
-              opcode: 'operator_equals',
-              inputs: {
-                OPERAND1: this.read(scope.loopState),
-                OPERAND2: [1, [4, 0]]
-              }
-            })]
+            CONDITION: condition
           }
         });
         const continuation = scope.createChild();

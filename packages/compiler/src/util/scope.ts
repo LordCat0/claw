@@ -17,6 +17,7 @@ class Scope {
   lastBlock: string | null;
   frame: CallFrame | null;
   loopState: VariableBinding | null;
+  breakState: VariableBinding | null;
   parameters: string[];
   thread: ScratchInput | null;
   internal: boolean;
@@ -37,6 +38,7 @@ class Scope {
     this.lastBlock = null;
     this.frame = parent?.frame || null;
     this.loopState = parent?.loopState || null;
+    this.breakState = parent?.breakState || null;
     this.parameters = parent?.parameters || [];
     this.thread = parent?.thread || null;
     this.internal = parent?.internal || false;
@@ -156,6 +158,7 @@ class Scope {
 
     if (newFunction) {
       child.loopState = null;
+      child.breakState = null;
       child.variables = [];
       child.temporaries = {
         values: [],

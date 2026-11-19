@@ -9,6 +9,7 @@ import {
   type Block,
   type VarDeclaration,
   type IfStatement,
+  type SwitchStatement,
   type WhileStatement,
   type RepeatStatement,
   type ForStatement,
@@ -74,6 +75,10 @@ class ASTBuilder {
   parseStatement (): Statement {
     const token = this.current();
 
+    if (token.type === TokenType.LBRACE) {
+      return this.parseBlock();
+    }
+
     if (token.type === TokenType.KEYWORD) {
       switch (token.value) {
         case Keyword.const:
@@ -81,6 +86,8 @@ class ASTBuilder {
           return this.parseVarDeclaration();
         case Keyword.if:
           return this.parseIf();
+        case Keyword.switch:
+          return this.parseSwitch();
         case Keyword.while:
           return this.parseWhile();
         case Keyword.repeat:
@@ -184,6 +191,60 @@ class ASTBuilder {
       test,
       consequent,
       alternate
+    };
+  }
+
+  parseSwitch (): SwitchStatement {
+    this.advance();
+    this.expect(TokenType.LPAREN);
+    const discriminant = this.parseExpression();
+    this.expect(TokenType.RPAREN);
+    this.expect(TokenType.LBRACE);
+
+    const cases: SwitchStatement['cases'] = [];
+    let hasDefault = false;
+
+    while (this.current().type !== TokenType.RBRACE) {
+      const label = this.current();
+      let test = null;
+
+      if (label.type === TokenType.KEYWORD && label.value === Keyword.default) {
+        if (hasDefault) {
+          throw new Error(`Unexpected 'default' at line ${label.line}, col ${label.col}`);
+        }
+
+        this.advance();
+        hasDefault = true;
+      } else {
+        this.expect(TokenType.KEYWORD, Keyword.case);
+        test = this.parseExpression();
+      }
+
+      this.expect(TokenType.COLON);
+      const body: Statement[] = [];
+
+      while (this.current().type !== TokenType.RBRACE) {
+        const token = this.current();
+
+        if (token.type === TokenType.KEYWORD &&
+            (token.value === Keyword.case || token.value === Keyword.default)) {
+          break;
+        }
+
+        body.push(this.parseStatement());
+      }
+
+      cases.push({
+        test,
+        body
+      });
+    }
+
+    this.expect(TokenType.RBRACE);
+    return {
+      type: NodeType.SwitchStatement,
+      discriminant,
+      cases
     };
   }
 

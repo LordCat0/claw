@@ -29,6 +29,9 @@ export const enum TokenType {
 export enum Keyword {
   if = 'if',
   else = 'else',
+  switch = 'switch',
+  case = 'case',
+  default = 'default',
   while = 'while',
   for = 'for',
   repeat = 'repeat',
@@ -61,6 +64,7 @@ export const enum NodeType {
   ExpressionStatement = 'ExpressionStatement',
   VarDeclaration = 'VarDeclaration',
   IfStatement = 'IfStatement',
+  SwitchStatement = 'SwitchStatement',
   WhileStatement = 'WhileStatement',
   RepeatStatement = 'RepeatStatement',
   ForStatement = 'ForStatement',
@@ -86,10 +90,12 @@ export const enum NodeType {
 }
 
 export type Statement =
+  | Block
   | Assignment
   | ExpressionStatement
   | VarDeclaration
   | IfStatement
+  | SwitchStatement
   | WhileStatement
   | RepeatStatement
   | ForStatement
@@ -149,6 +155,15 @@ export interface IfStatement {
   test: Expression;
   consequent: Block;
   alternate: IfStatement | Block | null;
+}
+
+export interface SwitchStatement {
+  type: NodeType.SwitchStatement;
+  discriminant: Expression;
+  cases: {
+    test: Expression | null;
+    body: Statement[];
+  }[];
 }
 
 export interface WhileStatement {
