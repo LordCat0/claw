@@ -74,7 +74,6 @@ class Compiler {
   private _exports: Record<string, Bindings>;
   private _compiledFiles: Record<string, 'visiting' | 'done'>;
   private _startup: Scope;
-  private _runtimeLists: string[];
   private _currentFile: string | null;
   private _globals: Scope;
   private _capturedInputs: Record<string, boolean>;
@@ -137,7 +136,6 @@ class Compiler {
     this._exports = {};
     this._compiledFiles = {};
     this._startup = new Scope();
-    this._runtimeLists = [];
     this.arrays = false;
     this.builtins = null;
     this.arrayCallbacks = [];
@@ -159,44 +157,47 @@ class Compiler {
 
   insertBlock (blockInfo: BlockOptions, lastBlock?: string) {
     const id = uid();
+    const blocks = this.root.blocks;
 
-    if (lastBlock && this.root.blocks[lastBlock]) {
-      this.root.blocks[lastBlock].next = id;
-      this.root.blocks[id] = newBlock({
+    if (lastBlock && blocks[lastBlock]) {
+      blocks[lastBlock].next = id;
+      blocks[id] = newBlock({
         parent: lastBlock,
         ...blockInfo
       });
     } else {
-      this.root.blocks[id] = newBlock(blockInfo);
+      blocks[id] = newBlock(blockInfo);
     }
 
-    for (const [name, input] of Object.entries(this.root.blocks[id].inputs)) {
-      if (Array.isArray(input)) {
-        const attached: typeof input = [...input];
-        this.root.blocks[id].inputs[name] = attached;
+    for (const [name, input] of Object.entries(blocks[id].inputs)) {
+      if (!Array.isArray(input)) {
+        continue;
+      }
 
-        for (let i = 1; i < attached.length; i++) {
-          const value = attached[i];
+      const attached: typeof input = [...input];
+      blocks[id].inputs[name] = attached;
 
-          if (typeof value === 'string' && this.root.blocks[value]) {
-            let child = value;
+      for (let i = 1; i < attached.length; i++) {
+        let child = attached[i];
 
-            if (this.root.blocks[child].parent) {
-              child = this.insertBlock({
-                ...this.root.blocks[child],
-                parent: null
-              });
-            }
-
-            attached[i] = child;
-            this.root.blocks[child].parent = id;
-          }
+        if (typeof child !== 'string' || !blocks[child]) {
+          continue;
         }
+
+        if (blocks[child].parent) {
+          child = this.insertBlock({
+            ...blocks[child],
+            parent: null
+          });
+        }
+
+        attached[i] = child;
+        blocks[child].parent = id;
       }
     }
 
     if (blockInfo.next) {
-      this.root.blocks[blockInfo.next].parent = id;
+      blocks[blockInfo.next].parent = id;
     }
 
     return id;
@@ -225,17 +226,39 @@ class Compiler {
     })];
   }
 
+  menu (
+    opcode: string,
+    name: string,
+    field: CallArguments['fields'][number],
+    input: ScratchInput
+  ): ScratchInput {
+    const shadow = this.insertBlock({
+      opcode,
+      fields: { [name]: field || ['', null] },
+      shadow: true
+    });
+    return field ? [1, shadow] : [3, input[1], shadow];
+  }
+
   list (name: string) {
-    this._lists[name] = this._lists[name] || this.runtimeList(name);
+    if (!this._lists[name]) {
+      const id = uid();
+      const scopedName = `${name}@${id}`;
+      this._lists[name] = [scopedName, id];
+      this.stage.lists[id] = [scopedName, []];
+    }
+
     return this._lists[name];
   }
 
   registerFrame (size: number) {
-    if (!this._frameSizes.includes(size)) {
-      this._frameSizes.push(size);
+    const index = this._frameSizes.indexOf(size);
+    if (index !== -1) {
+      return index + 1;
     }
 
-    return this._frameSizes.indexOf(size) + 1;
+    this._frameSizes.push(size);
+    return this._frameSizes.length;
   }
 
   async builtin (name: string | FunctionBinding, inputs: ScratchInput[], scope: Scope, asValue = true) {
@@ -278,10 +301,9 @@ class Compiler {
   }
 
   attachSubstack (parent: string, input: string, scope: Scope) {
-    this.root.blocks[parent].inputs[input] = [2, null];
+    this.root.blocks[parent].inputs[input] = [2, scope.firstBlock];
 
     if (scope.firstBlock) {
-      this.root.blocks[parent].inputs[input] = [2, scope.firstBlock];
       this.root.blocks[scope.firstBlock].parent = parent;
     }
   }
@@ -426,13 +448,10 @@ class Compiler {
     }
 
     if (this._booleanInputs[value[1] as string]) {
-      return [2, this.insertBlock({
-        opcode: 'operator_equals',
-        inputs: {
-          OPERAND1: value,
-          OPERAND2: [1, [10, 'true']]
-        }
-      })];
+      return this.reporter('operator_equals', {
+        OPERAND1: value,
+        OPERAND2: [1, [10, 'true']]
+      });
     }
 
     if (this.isBoolean(value)) {
@@ -446,39 +465,22 @@ class Compiler {
     }
 
     // The prefix makes zero strings compare as text
-    return this.not([2, this.insertBlock({
-      opcode: 'data_listcontainsitem',
-      fields: {
-        LIST: this._falsyList
-      },
-      inputs: {
-        ITEM: [2, this.insertBlock({
-          opcode: 'operator_join',
-          inputs: {
-            STRING1: [1, [10, '#']],
-            STRING2: value
-          }
-        })]
-      }
-    })]);
+    const text = this.reporter('operator_join', {
+      STRING1: [1, [10, '#']],
+      STRING2: value
+    });
+    return this.not(this.reporter('data_listcontainsitem', {
+      ITEM: text
+    }, { LIST: this._falsyList }));
   }
 
   not (value: ScratchInput): ScratchInput {
-    return [2, this.insertBlock({
-      opcode: 'operator_not',
-      inputs: {
-        OPERAND: value
-      }
-    })];
+    return this.reporter('operator_not', { OPERAND: value });
   }
 
   booleanLiteral (value: boolean): ScratchInput {
-    return [2, this.insertBlock({
-      opcode: 'operator_not',
-      inputs: value ? {} : {
-        OPERAND: [2, this.insertBlock({ opcode: 'operator_not' })]
-      }
-    })];
+    const truth = this.reporter('operator_not');
+    return value ? truth : this.not(truth);
   }
 
   constantValue (expression: Expression, scope: Scope): Literal | null {
@@ -488,7 +490,7 @@ class Compiler {
       return expression;
     }
 
-    // shortcut: function reads stay dynamic, track initialization before folding captures
+    // Functions can read captured variables before initialization
     if (expression.type === NodeType.Identifier && !scope.isFunction) {
       const binding = scope.resolve(expression.name);
       return binding?.kind === 'variable' ? binding.constantValue || null : null;
@@ -624,11 +626,7 @@ class Compiler {
 
     const object = await this.resolveBinding(expression.object, scope);
 
-    if (!object) {
-      return null;
-    }
-
-    if (object.kind !== 'object') {
+    if (object?.kind !== 'object') {
       return null;
     }
 
@@ -860,7 +858,7 @@ class Compiler {
       const branch = this.append(scope, {
         opcode: 'control_if',
         inputs: {
-          CONDITION: [2, this.insertBlock({ opcode: 'operator_not' })]
+          CONDITION: this.booleanLiteral(true)
         }
       });
       const body = scope.createChild();
@@ -903,18 +901,16 @@ class Compiler {
   async parseSubstack (
     bodyStatements: Statement[],
     parentScope: Scope,
-    parentBlockId: string
+    parentBlockId: string,
+    input = 'SUBSTACK'
   ) {
     const childScope = parentScope.createChild();
-    childScope.lastBlock = null;
     await this.parseASTBody(bodyStatements, childScope);
     await this.releaseScope(childScope);
 
     if (childScope.firstBlock) {
-      this.root.blocks[childScope.firstBlock].parent = parentBlockId;
+      this.attachSubstack(parentBlockId, input, childScope);
     }
-
-    return childScope.firstBlock;
   }
 
   async parseBinaryExpression (
@@ -951,13 +947,11 @@ class Compiler {
       const right = await this.parseExpression(expr.right, rightScope, true);
 
       if (scope.internal && !rightScope.firstBlock) {
-        return [2, this.insertBlock({
-          opcode: expr.operator === '&&' ? 'operator_and' : 'operator_or',
-          inputs: {
-            OPERAND1: this.boolean(left),
-            OPERAND2: this.boolean(right)
-          }
-        })];
+        const opcode = expr.operator === '&&' ? 'operator_and' : 'operator_or';
+        return this.reporter(opcode, {
+          OPERAND1: this.boolean(left),
+          OPERAND2: this.boolean(right)
+        });
       }
 
       const result = this.temporary(scope);
@@ -999,29 +993,23 @@ class Compiler {
     if (sum) {
       right = this.capture(right, scope);
       // Numeric strings add, other text concatenates
-      const numeric = [left, right].map(value => [2, this.insertBlock({
-        opcode: 'operator_equals',
-        inputs: {
+      const numeric = [left, right].map(value => {
+        const number = this.reporter('operator_add', {
+          NUM1: value,
+          NUM2: this.number(0)
+        });
+        return this.reporter('operator_equals', {
           OPERAND1: value,
-          OPERAND2: [2, this.insertBlock({
-            opcode: 'operator_add',
-            inputs: {
-              NUM1: value,
-              NUM2: [1, [4, 0]]
-            }
-          })]
-        }
-      })] as ScratchInput);
+          OPERAND2: number
+        });
+      });
       const branch = this.append(scope, {
         opcode: 'control_if_else',
         inputs: {
-          CONDITION: [2, this.insertBlock({
-            opcode: 'operator_and',
-            inputs: {
-              OPERAND1: numeric[0],
-              OPERAND2: numeric[1]
-            }
-          })]
+          CONDITION: this.reporter('operator_and', {
+            OPERAND1: numeric[0],
+            OPERAND2: numeric[1]
+          })
         }
       });
 
@@ -1030,13 +1018,11 @@ class Compiler {
         ['SUBSTACK2', 'operator_join', 'STRING']
       ]) {
         const branchScope = scope.createChild();
-        this.write(sum, [2, this.insertBlock({
-          opcode,
-          inputs: {
-            [input + '1']: left,
-            [input + '2']: right
-          }
-        })], branchScope);
+        const value = this.reporter(opcode, {
+          [input + '1']: left,
+          [input + '2']: right
+        });
+        this.write(sum, value, branchScope);
         this.attachSubstack(branch, substack, branchScope);
       }
 
@@ -1046,48 +1032,34 @@ class Compiler {
     let result: ScratchInput;
 
     if (addition === 'operator_join') {
-      return [2, this.insertBlock({
-        opcode: addition,
-        inputs: {
-          STRING1: left,
-          STRING2: right
-        }
-      })];
+      return this.reporter(addition, {
+        STRING1: left,
+        STRING2: right
+      });
     }
 
     if (Object.hasOwn(arithmetic, expr.operator)) {
-      result = [2, this.insertBlock({
-        opcode: arithmetic[expr.operator],
-        inputs: {
-          NUM1: left,
-          NUM2: right
-        }
-      })];
+      result = this.reporter(arithmetic[expr.operator], {
+        NUM1: left,
+        NUM2: right
+      });
     } else {
-      result = [2, this.insertBlock({
-        opcode: comparisons[expr.operator],
-        inputs: {
-          OPERAND1: left,
-          OPERAND2: right
-        }
-      })];
+      result = this.reporter(comparisons[expr.operator], {
+        OPERAND1: left,
+        OPERAND2: right
+      });
     }
 
     if (this.arrays && (expr.operator === '==' || expr.operator === '!=') &&
         (!this.isScalar(left) || !this.isScalar(right))) {
-      result = [2, this.insertBlock({
-        opcode: 'operator_and',
-        inputs: {
-          OPERAND1: result,
-          OPERAND2: [2, this.insertBlock({
-            opcode: 'operator_equals',
-            inputs: {
-              OPERAND1: this.arrayReference(left),
-              OPERAND2: this.arrayReference(right)
-            }
-          })]
-        }
-      })];
+      const sameReference = this.reporter('operator_equals', {
+        OPERAND1: this.arrayReference(left),
+        OPERAND2: this.arrayReference(right)
+      });
+      result = this.reporter('operator_and', {
+        OPERAND1: result,
+        OPERAND2: sameReference
+      });
     }
 
     if (['!=', '<=', '>='].includes(expr.operator)) {
@@ -1152,15 +1124,12 @@ class Compiler {
 
     if (expr.operator === '!') {
       return this.not(this.boolean(value));
-    } else if (expr.operator === '-') {
-      return [2, this.insertBlock({
-        opcode: 'operator_subtract',
-        inputs: {
-          NUM1: [1, [6, 0]],
-          NUM2: value
-        }
-      })];
     }
+
+    return this.reporter('operator_subtract', {
+      NUM1: [1, [6, 0]],
+      NUM2: value
+    });
   }
 
   async parseExpression (
@@ -1237,13 +1206,7 @@ class Compiler {
           throw new Error('Expected a variable.');
         }
 
-        const value = this.read(binding);
-
-        if (binding.boolean) {
-          this._booleanInputs[value[1] as string] = true;
-        }
-
-        return value;
+        return this.read(binding);
       }
       case NodeType.UpdateExpression: {
         if (expression.argument.type === NodeType.IndexExpression ||
@@ -1307,27 +1270,27 @@ class Compiler {
     }
   }
 
-  hasLoopControl (body: Statement[]): boolean {
-    return body.some(statement => {
-      if (statement.type === NodeType.BreakStatement ||
-          statement.type === NodeType.ContinueStatement) {
-        return true;
-      }
+  hasLoopControl (statement: Statement): boolean {
+    if (statement.type === NodeType.BreakStatement || statement.type === NodeType.ContinueStatement) {
+      return true;
+    }
 
-      if (statement.type === NodeType.IfStatement) {
-        let alternate: Statement[] = [];
-
-        if (statement.alternate) {
-          alternate = statement.alternate.type === NodeType.Block
-            ? statement.alternate.body
-            : [statement.alternate];
-        }
-
-        return this.hasLoopControl(statement.consequent.body) || this.hasLoopControl(alternate);
-      }
-
+    if (statement.type !== NodeType.IfStatement) {
       return false;
-    });
+    }
+
+    if (statement.consequent.body.some(child => this.hasLoopControl(child))) {
+      return true;
+    }
+
+    const alternate = statement.alternate;
+    if (!alternate) {
+      return false;
+    }
+
+    return alternate.type === NodeType.Block
+      ? alternate.body.some(child => this.hasLoopControl(child))
+      : this.hasLoopControl(alternate);
   }
 
   async parseLoop (
@@ -1335,7 +1298,7 @@ class Compiler {
     scope: Scope
   ) {
     const body = statement.body.body;
-    const hasControl = this.hasLoopControl(body);
+    const hasControl = body.some(statement => this.hasLoopControl(statement));
 
     if (statement.type === NodeType.RepeatStatement && !hasControl) {
       const count = await this.parseExpression(statement.count, scope, true);
@@ -1346,12 +1309,7 @@ class Compiler {
           SUBSTACK: [2, null]
         }
       });
-      const firstBody = await this.parseSubstack(body, scope, loop);
-
-      if (firstBody) {
-        this.root.blocks[loop].inputs.SUBSTACK = [2, firstBody];
-      }
-
+      await this.parseSubstack(body, scope, loop);
       return loop;
     }
 
@@ -1571,18 +1529,13 @@ class Compiler {
             SUBSTACK: [2, null]
           }
         });
-        const firstCons = await this.parseSubstack(statement.consequent.body, scope, ifId);
-        if (firstCons) {
-          this.root.blocks[ifId].inputs.SUBSTACK = [2, firstCons];
-        }
+        await this.parseSubstack(statement.consequent.body, scope, ifId);
+
         if (hasElse) {
           const altBody = statement.alternate.type === NodeType.Block
             ? statement.alternate.body
             : [statement.alternate];
-          const firstAlt = await this.parseSubstack(altBody, scope, ifId);
-          if (firstAlt) {
-            this.root.blocks[ifId].inputs.SUBSTACK2 = [2, firstAlt];
-          }
+          await this.parseSubstack(altBody, scope, ifId, 'SUBSTACK2');
         }
         return ifId;
       }
@@ -1883,7 +1836,7 @@ class Compiler {
         break;
       }
 
-      if (scope.loopState && i + 1 < body.length && this.hasLoopControl([statement])) {
+      if (scope.loopState && i + 1 < body.length && this.hasLoopControl(statement)) {
         const guard = this.append(scope, {
           opcode: 'control_if',
           inputs: {
@@ -1921,14 +1874,6 @@ class Compiler {
         await this.clearReference(binding.reference, scope);
       }
     }
-  }
-
-  runtimeList (name: string) {
-    const id = uid();
-    const list: [string, string] = [`${name}@${id}`, id];
-    this.stage.lists[id] = [list[0], []];
-    this._runtimeLists.push(id);
-    return list;
   }
 
   resolveImport (source: string, filePath = this._currentFile) {
@@ -2089,11 +2034,11 @@ class Compiler {
 
     const reset = new Scope();
 
-    for (const id of this._runtimeLists) {
+    for (const list of Object.values(this._lists)) {
       this.append(reset, {
         opcode: 'data_deletealloflist',
         fields: {
-          LIST: [this.stage.lists[id][0], id]
+          LIST: list
         }
       });
     }

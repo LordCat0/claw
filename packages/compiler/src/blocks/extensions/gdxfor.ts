@@ -5,47 +5,29 @@ export default {
     kind: 'function',
     blockType: 'hat',
     args: [10, 'body'],
-    create: ({ inputs, fields, bodies }, compiler) => {
-      const shadow0 = compiler.insertBlock({
-        opcode: 'gdxfor_menu_gestureOptions',
-        fields: {
-          gestureOptions: fields[0] || ['', null]
-        },
-        shadow: true
-      });
-
-      return {
-        opcode: 'gdxfor_whenGesture',
-        inputs: {
-          GESTURE: fields[0] ? [1, shadow0] : [3, inputs[0][1], shadow0]
-        },
-        topLevel: true,
-        next: bodies[1]
-      };
-    }
+    create: ({ inputs, fields, bodies }, compiler) => ({
+      opcode: 'gdxfor_whenGesture',
+      inputs: {
+        GESTURE: compiler.menu('gdxfor_menu_gestureOptions', 'gestureOptions', fields[0], inputs[0])
+      },
+      topLevel: true,
+      next: bodies[1]
+    })
   },
   whenForcePushedOrPulled: {
     kind: 'function',
     blockType: 'hat',
     args: [10, 'body'],
-    create: ({ inputs, fields, bodies }, compiler) => {
-      const shadow0 = compiler.insertBlock({
-        opcode: 'gdxfor_menu_pushPullOptions',
-        fields: {
-          pushPullOptions: fields[0] || ['', null]
-        },
-        shadow: true
-      });
-
-      return {
-        opcode: 'gdxfor_whenForcePushedOrPulled',
-        inputs: {
-          PUSH_PULL: fields[0] ? [1, shadow0] : [3, inputs[0][1], shadow0]
-        },
-        topLevel: true,
-        next: bodies[1]
-      };
-    }
+    create: ({ inputs, fields, bodies }, compiler) => ({
+      opcode: 'gdxfor_whenForcePushedOrPulled',
+      inputs: {
+        PUSH_PULL: compiler.menu(
+          'gdxfor_menu_pushPullOptions', 'pushPullOptions', fields[0], inputs[0]
+        )
+      },
+      topLevel: true,
+      next: bodies[1]
+    })
   },
   getForce: {
     kind: 'function',
@@ -59,66 +41,36 @@ export default {
     kind: 'function',
     blockType: 'hat',
     args: [10, 'body'],
-    create: ({ inputs, fields, bodies }, compiler) => {
-      const shadow0 = compiler.insertBlock({
-        opcode: 'gdxfor_menu_tiltAnyOptions',
-        fields: {
-          tiltAnyOptions: fields[0] || ['', null]
-        },
-        shadow: true
-      });
-
-      return {
-        opcode: 'gdxfor_whenTilted',
-        inputs: {
-          TILT: fields[0] ? [1, shadow0] : [3, inputs[0][1], shadow0]
-        },
-        topLevel: true,
-        next: bodies[1]
-      };
-    }
+    create: ({ inputs, fields, bodies }, compiler) => ({
+      opcode: 'gdxfor_whenTilted',
+      inputs: {
+        TILT: compiler.menu('gdxfor_menu_tiltAnyOptions', 'tiltAnyOptions', fields[0], inputs[0])
+      },
+      topLevel: true,
+      next: bodies[1]
+    })
   },
   isTilted: {
     kind: 'function',
     blockType: 'reporter',
     args: [10],
-    create: ({ inputs, fields }, compiler) => {
-      const shadow0 = compiler.insertBlock({
-        opcode: 'gdxfor_menu_tiltAnyOptions',
-        fields: {
-          tiltAnyOptions: fields[0] || ['', null]
-        },
-        shadow: true
-      });
-
-      return {
-        opcode: 'gdxfor_isTilted',
-        inputs: {
-          TILT: fields[0] ? [1, shadow0] : [3, inputs[0][1], shadow0]
-        }
-      };
-    }
+    create: ({ inputs, fields }, compiler) => ({
+      opcode: 'gdxfor_isTilted',
+      inputs: {
+        TILT: compiler.menu('gdxfor_menu_tiltAnyOptions', 'tiltAnyOptions', fields[0], inputs[0])
+      }
+    })
   },
   getTilt: {
     kind: 'function',
     blockType: 'reporter',
     args: [10],
-    create: ({ inputs, fields }, compiler) => {
-      const shadow0 = compiler.insertBlock({
-        opcode: 'gdxfor_menu_tiltOptions',
-        fields: {
-          tiltOptions: fields[0] || ['', null]
-        },
-        shadow: true
-      });
-
-      return {
-        opcode: 'gdxfor_getTilt',
-        inputs: {
-          TILT: fields[0] ? [1, shadow0] : [3, inputs[0][1], shadow0]
-        }
-      };
-    }
+    create: ({ inputs, fields }, compiler) => ({
+      opcode: 'gdxfor_getTilt',
+      inputs: {
+        TILT: compiler.menu('gdxfor_menu_tiltOptions', 'tiltOptions', fields[0], inputs[0])
+      }
+    })
   },
   isFreeFalling: {
     kind: 'function',
@@ -132,42 +84,22 @@ export default {
     kind: 'function',
     blockType: 'reporter',
     args: [10],
-    create: ({ inputs, fields }, compiler) => {
-      const shadow0 = compiler.insertBlock({
-        opcode: 'gdxfor_menu_axisOptions',
-        fields: {
-          axisOptions: fields[0] || ['', null]
-        },
-        shadow: true
-      });
-
-      return {
-        opcode: 'gdxfor_getSpinSpeed',
-        inputs: {
-          DIRECTION: fields[0] ? [1, shadow0] : [3, inputs[0][1], shadow0]
-        }
-      };
-    }
+    create: ({ inputs, fields }, compiler) => ({
+      opcode: 'gdxfor_getSpinSpeed',
+      inputs: {
+        DIRECTION: compiler.menu('gdxfor_menu_axisOptions', 'axisOptions', fields[0], inputs[0])
+      }
+    })
   },
   getAcceleration: {
     kind: 'function',
     blockType: 'reporter',
     args: [10],
-    create: ({ inputs, fields }, compiler) => {
-      const shadow0 = compiler.insertBlock({
-        opcode: 'gdxfor_menu_axisOptions',
-        fields: {
-          axisOptions: fields[0] || ['', null]
-        },
-        shadow: true
-      });
-
-      return {
-        opcode: 'gdxfor_getAcceleration',
-        inputs: {
-          DIRECTION: fields[0] ? [1, shadow0] : [3, inputs[0][1], shadow0]
-        }
-      };
-    }
+    create: ({ inputs, fields }, compiler) => ({
+      opcode: 'gdxfor_getAcceleration',
+      inputs: {
+        DIRECTION: compiler.menu('gdxfor_menu_axisOptions', 'axisOptions', fields[0], inputs[0])
+      }
+    })
   }
 } satisfies Bindings;

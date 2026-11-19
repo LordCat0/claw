@@ -45,22 +45,14 @@ export default {
       kind: 'function',
       blockType: 'command',
       args: [10],
-      create: ({ inputs, fields }, compiler) => {
-        const shadow0 = compiler.insertBlock({
-          opcode: 'control_create_clone_of_menu',
-          fields: {
-            CLONE_OPTION: fields[0] || ['', null]
-          },
-          shadow: true
-        });
-
-        return {
-          opcode: 'control_create_clone_of',
-          inputs: {
-            CLONE_OPTION: fields[0] ? [1, shadow0] : [3, inputs[0][1], shadow0]
-          }
-        };
-      }
+      create: ({ inputs, fields }, compiler) => ({
+        opcode: 'control_create_clone_of',
+        inputs: {
+          CLONE_OPTION: compiler.menu(
+            'control_create_clone_of_menu', 'CLONE_OPTION', fields[0], inputs[0]
+          )
+        }
+      })
     },
     deleteClone: {
       kind: 'function',

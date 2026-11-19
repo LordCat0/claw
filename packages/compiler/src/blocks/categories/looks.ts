@@ -52,22 +52,12 @@ export default {
       kind: 'function',
       blockType: 'command',
       args: [10],
-      create: ({ inputs, fields }, compiler) => {
-        const shadow0 = compiler.insertBlock({
-          opcode: 'looks_costume',
-          fields: {
-            COSTUME: fields[0] || ['', null]
-          },
-          shadow: true
-        });
-
-        return {
-          opcode: 'looks_switchcostumeto',
-          inputs: {
-            COSTUME: fields[0] ? [1, shadow0] : [3, inputs[0][1], shadow0]
-          }
-        };
-      }
+      create: ({ inputs, fields }, compiler) => ({
+        opcode: 'looks_switchcostumeto',
+        inputs: {
+          COSTUME: compiler.menu('looks_costume', 'COSTUME', fields[0], inputs[0])
+        }
+      })
     },
     nextCostume: {
       kind: 'function',
@@ -193,43 +183,23 @@ export default {
       kind: 'function',
       blockType: 'command',
       args: [10],
-      create: ({ inputs, fields }, compiler) => {
-        const shadow0 = compiler.insertBlock({
-          opcode: 'looks_backdrops',
-          fields: {
-            BACKDROP: fields[0] || ['', null]
-          },
-          shadow: true
-        });
-
-        return {
-          opcode: 'looks_switchbackdropto',
-          inputs: {
-            BACKDROP: fields[0] ? [1, shadow0] : [3, inputs[0][1], shadow0]
-          }
-        };
-      }
+      create: ({ inputs, fields }, compiler) => ({
+        opcode: 'looks_switchbackdropto',
+        inputs: {
+          BACKDROP: compiler.menu('looks_backdrops', 'BACKDROP', fields[0], inputs[0])
+        }
+      })
     },
     switchBackdropAndWait: {
       kind: 'function',
       blockType: 'command',
       args: [10],
-      create: ({ inputs, fields }, compiler) => {
-        const shadow0 = compiler.insertBlock({
-          opcode: 'looks_backdrops',
-          fields: {
-            BACKDROP: fields[0] || ['', null]
-          },
-          shadow: true
-        });
-
-        return {
-          opcode: 'looks_switchbackdroptoandwait',
-          inputs: {
-            BACKDROP: fields[0] ? [1, shadow0] : [3, inputs[0][1], shadow0]
-          }
-        };
-      }
+      create: ({ inputs, fields }, compiler) => ({
+        opcode: 'looks_switchbackdroptoandwait',
+        inputs: {
+          BACKDROP: compiler.menu('looks_backdrops', 'BACKDROP', fields[0], inputs[0])
+        }
+      })
     },
     nextBackdrop: {
       kind: 'function',

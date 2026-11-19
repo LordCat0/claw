@@ -1,6 +1,11 @@
 import type Compiler from '../../compiler.ts';
 import type Scope from '../../util/scope.ts';
-import type { Bindings, Expression, FunctionBinding, ScratchInput } from '../../types.ts';
+import type {
+  Bindings,
+  Expression,
+  FunctionBinding,
+  ScratchInput
+} from '../../types.ts';
 
 export const referenceVariables: Record<string, string[]> = {
   create: ['array'],
@@ -199,8 +204,9 @@ export async function arrayMethod (
   }
 
   if (name === 'concat' || name === 'copy') {
-    const result = await compiler.builtin('slice',
-      [array, compiler.number(0), compiler.number(200000)], scope);
+    const result = await compiler.builtin(
+      'slice', [array, compiler.number(0), compiler.number(200000)], scope
+    );
 
     for (const input of inputs) {
       await compiler.builtin('extend', [result, input], scope, false);
@@ -231,8 +237,9 @@ export async function arrayMethod (
     }
 
     const returnsLength = name === 'insert' || name === 'unshift';
-    const removed = await compiler.builtin('splice', [array, start, count, items], scope,
-      asValue && !returnsLength);
+    const removed = await compiler.builtin(
+      'splice', [array, start, count, items], scope, asValue && !returnsLength
+    );
 
     if (returnsLength && asValue) {
       return compiler.builtin('length', [array], scope);
@@ -250,12 +257,11 @@ export async function arrayMethod (
     join: [[1, [10, ',']]]
   };
 
-  for (const value of (defaults[name] || []).slice(inputs.length - min)) {
-    inputs.push(value);
-  }
+  const optional = defaults[name] || [];
+  inputs.push(...optional.slice(inputs.length - min));
 
-  const result = await compiler.builtin(name === 'includes' ? 'indexOf' : name,
-    [array, ...inputs], scope, asValue);
+  const builtin = name === 'includes' ? 'indexOf' : name;
+  const result = await compiler.builtin(builtin, [array, ...inputs], scope, asValue);
 
   if (name === 'includes' && asValue) {
     return compiler.reporter('operator_gt', {
@@ -281,17 +287,19 @@ async function transform (
     await compile();
   }
 
-  let entry = compiler.arrayCallbacks.find(value => value.method === method && value.callback === callback);
+  let entry = compiler.arrayCallbacks.find(value => {
+    return value.method === method && value.callback === callback;
+  });
 
   if (!entry) {
     const callbackScope = compiler.builtins.createChild();
     callbackScope.parameters = callback.procedure?.captures || [];
     callbackScope.define('callback', callback);
     const parameters = ['value', 'index', 'array'].slice(0, callback.args.length).join(', ');
-    const mapped = `callback(${parameters})`;
+    const call = `callback(${parameters})`;
     const select = method === 'map'
-      ? `set(result, index, ${mapped});`
-      : `if (${mapped}) {
+      ? `set(result, index, ${call});`
+      : `if (${call}) {
               push(result, value);
             }`;
     const binding = await compiler.parseBuiltin(`

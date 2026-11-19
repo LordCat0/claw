@@ -108,24 +108,16 @@ export default {
       kind: 'function',
       blockType: 'hat',
       args: [10, 'body'],
-      create: ({ inputs, fields, bodies }, compiler) => {
-        const shadow0 = compiler.insertBlock({
-          opcode: 'sensing_touchingobjectmenu',
-          fields: {
-            TOUCHINGOBJECTMENU: fields[0] || ['', null]
-          },
-          shadow: true
-        });
-
-        return {
-          opcode: 'event_whentouchingobject',
-          inputs: {
-            TOUCHINGOBJECTMENU: fields[0] ? [1, shadow0] : [3, inputs[0][1], shadow0]
-          },
-          topLevel: true,
-          next: bodies[1]
-        };
-      }
+      create: ({ inputs, fields, bodies }, compiler) => ({
+        opcode: 'event_whentouchingobject',
+        inputs: {
+          TOUCHINGOBJECTMENU: compiler.menu(
+            'sensing_touchingobjectmenu', 'TOUCHINGOBJECTMENU', fields[0], inputs[0]
+          )
+        },
+        topLevel: true,
+        next: bodies[1]
+      })
     }
   }
 } satisfies Record<string, Bindings>;

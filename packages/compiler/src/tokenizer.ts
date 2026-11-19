@@ -4,6 +4,9 @@ import {
   type Token
 } from './types.ts';
 
+const TWO_CHAR_COMPARISONS = ['==', '!=', '<=', '>='];
+const TWO_CHAR_OPERATORS = ['+=', '-=', '*=', '/=', '%=', '++', '--', '&&', '||'];
+
 class Tokenizer {
   tokens: Token[];
   pos: number;
@@ -71,45 +74,10 @@ class Tokenizer {
         continue;
       }
 
-      // Two character operators and comparisons
-      const next = this.source[this.pos + 1];
-      if (['+', '-', '*', '/', '%'].includes(ch) && next === '=') {
-        this.push(TokenType.OPERATOR, ch + next);
-        this.pos += 2;
-        this.col += 2;
-        continue;
-      }
-
-      if ((ch === '=' || ch === '!' || ch === '<' || ch === '>') && next === '=') {
-        this.push(TokenType.COMPARISON, ch + next);
-        this.pos += 2;
-        this.col += 2;
-        continue;
-      }
-
-      if (ch === '+' && next === '+') {
-        this.push(TokenType.OPERATOR, '++');
-        this.pos += 2;
-        this.col += 2;
-        continue;
-      }
-
-      if (ch === '-' && next === '-') {
-        this.push(TokenType.OPERATOR, '--');
-        this.pos += 2;
-        this.col += 2;
-        continue;
-      }
-
-      if (ch === '&' && next === '&') {
-        this.push(TokenType.OPERATOR, '&&');
-        this.pos += 2;
-        this.col += 2;
-        continue;
-      }
-
-      if (ch === '|' && next === '|') {
-        this.push(TokenType.OPERATOR, '||');
+      const operator = ch + this.source[this.pos + 1];
+      const comparison = TWO_CHAR_COMPARISONS.includes(operator);
+      if (comparison || TWO_CHAR_OPERATORS.includes(operator)) {
+        this.push(comparison ? TokenType.COMPARISON : TokenType.OPERATOR, operator);
         this.pos += 2;
         this.col += 2;
         continue;

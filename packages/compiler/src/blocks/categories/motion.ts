@@ -17,22 +17,12 @@ export default {
       kind: 'function',
       blockType: 'command',
       args: [10],
-      create: ({ inputs, fields }, compiler) => {
-        const shadow0 = compiler.insertBlock({
-          opcode: 'motion_goto_menu',
-          fields: {
-            TO: fields[0] || ['', null]
-          },
-          shadow: true
-        });
-
-        return {
-          opcode: 'motion_goto',
-          inputs: {
-            TO: fields[0] ? [1, shadow0] : [3, inputs[0][1], shadow0]
-          }
-        };
-      }
+      create: ({ inputs, fields }, compiler) => ({
+        opcode: 'motion_goto',
+        inputs: {
+          TO: compiler.menu('motion_goto_menu', 'TO', fields[0], inputs[0])
+        }
+      })
     },
     goToXY: {
       kind: 'function',
@@ -50,23 +40,13 @@ export default {
       kind: 'function',
       blockType: 'command',
       args: [4, 10],
-      create: ({ inputs, fields }, compiler) => {
-        const shadow1 = compiler.insertBlock({
-          opcode: 'motion_glideto_menu',
-          fields: {
-            TO: fields[1] || ['', null]
-          },
-          shadow: true
-        });
-
-        return {
-          opcode: 'motion_glideto',
-          inputs: {
-            SECS: inputs[0],
-            TO: fields[1] ? [1, shadow1] : [3, inputs[1][1], shadow1]
-          }
-        };
-      }
+      create: ({ inputs, fields }, compiler) => ({
+        opcode: 'motion_glideto',
+        inputs: {
+          SECS: inputs[0],
+          TO: compiler.menu('motion_glideto_menu', 'TO', fields[1], inputs[1])
+        }
+      })
     },
     glideToXY: {
       kind: 'function',
@@ -85,22 +65,12 @@ export default {
       kind: 'function',
       blockType: 'command',
       args: [10],
-      create: ({ inputs, fields }, compiler) => {
-        const shadow0 = compiler.insertBlock({
-          opcode: 'motion_pointtowards_menu',
-          fields: {
-            TOWARDS: fields[0] || ['', null]
-          },
-          shadow: true
-        });
-
-        return {
-          opcode: 'motion_pointtowards',
-          inputs: {
-            TOWARDS: fields[0] ? [1, shadow0] : [3, inputs[0][1], shadow0]
-          }
-        };
-      }
+      create: ({ inputs, fields }, compiler) => ({
+        opcode: 'motion_pointtowards',
+        inputs: {
+          TOWARDS: compiler.menu('motion_pointtowards_menu', 'TOWARDS', fields[0], inputs[0])
+        }
+      })
     },
     bounceOnEdge: {
       kind: 'function',

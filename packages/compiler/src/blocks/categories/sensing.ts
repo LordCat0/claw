@@ -6,22 +6,14 @@ export default {
       kind: 'function',
       blockType: 'reporter',
       args: [10],
-      create: ({ inputs, fields }, compiler) => {
-        const shadow0 = compiler.insertBlock({
-          opcode: 'sensing_touchingobjectmenu',
-          fields: {
-            TOUCHINGOBJECTMENU: fields[0] || ['', null]
-          },
-          shadow: true
-        });
-
-        return {
-          opcode: 'sensing_touchingobject',
-          inputs: {
-            TOUCHINGOBJECTMENU: fields[0] ? [1, shadow0] : [3, inputs[0][1], shadow0]
-          }
-        };
-      }
+      create: ({ inputs, fields }, compiler) => ({
+        opcode: 'sensing_touchingobject',
+        inputs: {
+          TOUCHINGOBJECTMENU: compiler.menu(
+            'sensing_touchingobjectmenu', 'TOUCHINGOBJECTMENU', fields[0], inputs[0]
+          )
+        }
+      })
     },
     touchingColor: {
       kind: 'function',
@@ -50,22 +42,14 @@ export default {
       kind: 'function',
       blockType: 'reporter',
       args: [10],
-      create: ({ inputs, fields }, compiler) => {
-        const shadow0 = compiler.insertBlock({
-          opcode: 'sensing_distancetomenu',
-          fields: {
-            DISTANCETOMENU: fields[0] || ['', null]
-          },
-          shadow: true
-        });
-
-        return {
-          opcode: 'sensing_distanceto',
-          inputs: {
-            DISTANCETOMENU: fields[0] ? [1, shadow0] : [3, inputs[0][1], shadow0]
-          }
-        };
-      }
+      create: ({ inputs, fields }, compiler) => ({
+        opcode: 'sensing_distanceto',
+        inputs: {
+          DISTANCETOMENU: compiler.menu(
+            'sensing_distancetomenu', 'DISTANCETOMENU', fields[0], inputs[0]
+          )
+        }
+      })
     },
     setDragMode: {
       kind: 'function',
@@ -106,22 +90,12 @@ export default {
       kind: 'function',
       blockType: 'reporter',
       args: [10],
-      create: ({ inputs, fields }, compiler) => {
-        const shadow0 = compiler.insertBlock({
-          opcode: 'sensing_keyoptions',
-          fields: {
-            KEY_OPTION: fields[0] || ['', null]
-          },
-          shadow: true
-        });
-
-        return {
-          opcode: 'sensing_keypressed',
-          inputs: {
-            KEY_OPTION: fields[0] ? [1, shadow0] : [3, inputs[0][1], shadow0]
-          }
-        };
-      }
+      create: ({ inputs, fields }, compiler) => ({
+        opcode: 'sensing_keypressed',
+        inputs: {
+          KEY_OPTION: compiler.menu('sensing_keyoptions', 'KEY_OPTION', fields[0], inputs[0])
+        }
+      })
     },
     mouse: {
       kind: 'object',
@@ -200,25 +174,15 @@ export default {
       kind: 'function',
       blockType: 'reporter',
       args: ['field', 10],
-      create: ({ fields, inputs }, compiler) => {
-        const shadow1 = compiler.insertBlock({
-          opcode: 'sensing_of_object_menu',
-          fields: {
-            OBJECT: fields[1] || ['', null]
-          },
-          shadow: true
-        });
-
-        return {
-          opcode: 'sensing_of',
-          inputs: {
-            OBJECT: fields[1] ? [1, shadow1] : [3, inputs[1][1], shadow1]
-          },
-          fields: {
-            PROPERTY: fields[0]
-          }
-        };
-      }
+      create: ({ fields, inputs }, compiler) => ({
+        opcode: 'sensing_of',
+        inputs: {
+          OBJECT: compiler.menu('sensing_of_object_menu', 'OBJECT', fields[1], inputs[1])
+        },
+        fields: {
+          PROPERTY: fields[0]
+        }
+      })
     },
     current: {
       kind: 'function',

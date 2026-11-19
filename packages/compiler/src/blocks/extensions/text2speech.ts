@@ -16,42 +16,22 @@ export default {
     kind: 'function',
     blockType: 'command',
     args: [10],
-    create: ({ inputs, fields }, compiler) => {
-      const shadow0 = compiler.insertBlock({
-        opcode: 'text2speech_menu_voices',
-        fields: {
-          voices: fields[0] || ['', null]
-        },
-        shadow: true
-      });
-
-      return {
-        opcode: 'text2speech_setVoice',
-        inputs: {
-          VOICE: fields[0] ? [1, shadow0] : [3, inputs[0][1], shadow0]
-        }
-      };
-    }
+    create: ({ inputs, fields }, compiler) => ({
+      opcode: 'text2speech_setVoice',
+      inputs: {
+        VOICE: compiler.menu('text2speech_menu_voices', 'voices', fields[0], inputs[0])
+      }
+    })
   },
   setLanguage: {
     kind: 'function',
     blockType: 'command',
     args: [10],
-    create: ({ inputs, fields }, compiler) => {
-      const shadow0 = compiler.insertBlock({
-        opcode: 'text2speech_menu_languages',
-        fields: {
-          languages: fields[0] || ['', null]
-        },
-        shadow: true
-      });
-
-      return {
-        opcode: 'text2speech_setLanguage',
-        inputs: {
-          LANGUAGE: fields[0] ? [1, shadow0] : [3, inputs[0][1], shadow0]
-        }
-      };
-    }
+    create: ({ inputs, fields }, compiler) => ({
+      opcode: 'text2speech_setLanguage',
+      inputs: {
+        LANGUAGE: compiler.menu('text2speech_menu_languages', 'languages', fields[0], inputs[0])
+      }
+    })
   }
 } satisfies Bindings;

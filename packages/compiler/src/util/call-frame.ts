@@ -25,17 +25,13 @@ class CallFrame {
   }
 
   index (slot = 0, base?: ScratchInput): ScratchInput {
-    const frame = base || [2, this._compiler.insertBlock({
-      opcode: 'argument_reporter_string_number',
-      fields: { VALUE: [this.parameter, null] }
-    })];
-    return [2, this._compiler.insertBlock({
-      opcode: 'operator_add',
-      inputs: {
-        NUM1: frame,
-        NUM2: [1, [4, slot + 1]]
-      }
-    })];
+    const frame = base || this._compiler.reporter('argument_reporter_string_number', {}, {
+      VALUE: [this.parameter, null]
+    });
+    return this._compiler.reporter('operator_add', {
+      NUM1: frame,
+      NUM2: this._compiler.number(slot + 1)
+    });
   }
 
   variable (): VariableBinding {
@@ -57,11 +53,10 @@ class CallFrame {
   }
 
   readResult (index: ScratchInput): ScratchInput {
-    const value: ScratchInput = [2, this._compiler.insertBlock({
-      opcode: 'data_itemoflist',
-      fields: { LIST: this._compiler.list('$frames') },
-      inputs: { INDEX: this.index(0, index) }
-    })];
+    const list = this._compiler.list('$frames');
+    const value = this._compiler.reporter('data_itemoflist', {
+      INDEX: this.index(0, index)
+    }, { LIST: list });
 
     if (this._compiler.arrays && !this.result.scalar) {
       const reference = this._compiler.read(
@@ -74,7 +69,7 @@ class CallFrame {
   }
 
   async release (scope: Scope, index: ScratchInput) {
-    // shortcut: canceled frames live until reset, add cleanup when tracking script cancellation
+    // Canceled scripts hold their frames until the next project start
     await this._compiler.builtin('releaseFrame', [index, [1, this._bucket], [1, this._size]], scope, false);
   }
 

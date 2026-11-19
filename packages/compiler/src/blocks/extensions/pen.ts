@@ -48,45 +48,25 @@ export default {
     kind: 'function',
     blockType: 'command',
     args: [10, 4],
-    create: ({ inputs, fields }, compiler) => {
-      const shadow0 = compiler.insertBlock({
-        opcode: 'pen_menu_colorParam',
-        fields: {
-          colorParam: fields[0] || ['', null]
-        },
-        shadow: true
-      });
-
-      return {
-        opcode: 'pen_changePenColorParamBy',
-        inputs: {
-          COLOR_PARAM: fields[0] ? [1, shadow0] : [3, inputs[0][1], shadow0],
-          VALUE: inputs[1]
-        }
-      };
-    }
+    create: ({ inputs, fields }, compiler) => ({
+      opcode: 'pen_changePenColorParamBy',
+      inputs: {
+        COLOR_PARAM: compiler.menu('pen_menu_colorParam', 'colorParam', fields[0], inputs[0]),
+        VALUE: inputs[1]
+      }
+    })
   },
   setPenColorParamTo: {
     kind: 'function',
     blockType: 'command',
     args: [10, 4],
-    create: ({ inputs, fields }, compiler) => {
-      const shadow0 = compiler.insertBlock({
-        opcode: 'pen_menu_colorParam',
-        fields: {
-          colorParam: fields[0] || ['', null]
-        },
-        shadow: true
-      });
-
-      return {
-        opcode: 'pen_setPenColorParamTo',
-        inputs: {
-          COLOR_PARAM: fields[0] ? [1, shadow0] : [3, inputs[0][1], shadow0],
-          VALUE: inputs[1]
-        }
-      };
-    }
+    create: ({ inputs, fields }, compiler) => ({
+      opcode: 'pen_setPenColorParamTo',
+      inputs: {
+        COLOR_PARAM: compiler.menu('pen_menu_colorParam', 'colorParam', fields[0], inputs[0]),
+        VALUE: inputs[1]
+      }
+    })
   },
   changePenSizeBy: {
     kind: 'function',

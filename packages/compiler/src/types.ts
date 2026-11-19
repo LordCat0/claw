@@ -110,9 +110,7 @@ export type Expression =
   | IndexExpression
   | ArrayExpression
   | UpdateExpression
-  | NumberLiteral
-  | StringLiteral
-  | BooleanLiteral
+  | Literal
   | Identifier;
 
 export type Literal = NumberLiteral | StringLiteral | BooleanLiteral;

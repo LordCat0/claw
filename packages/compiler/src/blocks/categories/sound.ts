@@ -6,43 +6,23 @@ export default {
       kind: 'function',
       blockType: 'command',
       args: [10],
-      create: ({ inputs, fields }, compiler) => {
-        const shadow0 = compiler.insertBlock({
-          opcode: 'sound_sounds_menu',
-          fields: {
-            SOUND_MENU: fields[0] || ['', null]
-          },
-          shadow: true
-        });
-
-        return {
-          opcode: 'sound_playuntildone',
-          inputs: {
-            SOUND_MENU: fields[0] ? [1, shadow0] : [3, inputs[0][1], shadow0]
-          }
-        };
-      }
+      create: ({ inputs, fields }, compiler) => ({
+        opcode: 'sound_playuntildone',
+        inputs: {
+          SOUND_MENU: compiler.menu('sound_sounds_menu', 'SOUND_MENU', fields[0], inputs[0])
+        }
+      })
     },
     startSound: {
       kind: 'function',
       blockType: 'command',
       args: [10],
-      create: ({ inputs, fields }, compiler) => {
-        const shadow0 = compiler.insertBlock({
-          opcode: 'sound_sounds_menu',
-          fields: {
-            SOUND_MENU: fields[0] || ['', null]
-          },
-          shadow: true
-        });
-
-        return {
-          opcode: 'sound_play',
-          inputs: {
-            SOUND_MENU: fields[0] ? [1, shadow0] : [3, inputs[0][1], shadow0]
-          }
-        };
-      }
+      create: ({ inputs, fields }, compiler) => ({
+        opcode: 'sound_play',
+        inputs: {
+          SOUND_MENU: compiler.menu('sound_sounds_menu', 'SOUND_MENU', fields[0], inputs[0])
+        }
+      })
     },
     changeSoundEffect: {
       kind: 'function',

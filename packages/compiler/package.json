@@ -6,7 +6,7 @@
   "types": "dist/src/index.d.ts",
   "type": "module",
   "scripts": {
-    "build": "tsc && node --input-type=module -e \"import fs from 'node:fs'; fs.cpSync('src/assets', 'dist/src/assets', { recursive: true })\"",
+    "build": "tsc && node scripts/copy-assets.js",
     "typecheck": "tsc --noEmit",
     "start": "node dist/src/index.js"
   },

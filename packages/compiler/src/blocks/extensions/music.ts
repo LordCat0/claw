@@ -5,45 +5,25 @@ export default {
     kind: 'function',
     blockType: 'command',
     args: [10, 4],
-    create: ({ inputs, fields }, compiler) => {
-      const shadow0 = compiler.insertBlock({
-        opcode: 'music_menu_DRUM',
-        fields: {
-          DRUM: fields[0] || ['', null]
-        },
-        shadow: true
-      });
-
-      return {
-        opcode: 'music_playDrumForBeats',
-        inputs: {
-          DRUM: fields[0] ? [1, shadow0] : [3, inputs[0][1], shadow0],
-          BEATS: inputs[1]
-        }
-      };
-    }
+    create: ({ inputs, fields }, compiler) => ({
+      opcode: 'music_playDrumForBeats',
+      inputs: {
+        DRUM: compiler.menu('music_menu_DRUM', 'DRUM', fields[0], inputs[0]),
+        BEATS: inputs[1]
+      }
+    })
   },
   midiPlayDrumForBeats: {
     kind: 'function',
     blockType: 'command',
     args: [10, 4],
-    create: ({ inputs, fields }, compiler) => {
-      const shadow0 = compiler.insertBlock({
-        opcode: 'music_menu_DRUM',
-        fields: {
-          DRUM: fields[0] || ['', null]
-        },
-        shadow: true
-      });
-
-      return {
-        opcode: 'music_midiPlayDrumForBeats',
-        inputs: {
-          DRUM: fields[0] ? [1, shadow0] : [3, inputs[0][1], shadow0],
-          BEATS: inputs[1]
-        }
-      };
-    }
+    create: ({ inputs, fields }, compiler) => ({
+      opcode: 'music_midiPlayDrumForBeats',
+      inputs: {
+        DRUM: compiler.menu('music_menu_DRUM', 'DRUM', fields[0], inputs[0]),
+        BEATS: inputs[1]
+      }
+    })
   },
   restForBeats: {
     kind: 'function',
@@ -60,44 +40,24 @@ export default {
     kind: 'function',
     blockType: 'command',
     args: [10, 4],
-    create: ({ inputs, fields }, compiler) => {
-      const shadow0 = compiler.insertBlock({
-        opcode: 'note',
-        fields: {
-          NOTE: fields[0] || ['', null]
-        },
-        shadow: true
-      });
-
-      return {
-        opcode: 'music_playNoteForBeats',
-        inputs: {
-          NOTE: fields[0] ? [1, shadow0] : [3, inputs[0][1], shadow0],
-          BEATS: inputs[1]
-        }
-      };
-    }
+    create: ({ inputs, fields }, compiler) => ({
+      opcode: 'music_playNoteForBeats',
+      inputs: {
+        NOTE: compiler.menu('note', 'NOTE', fields[0], inputs[0]),
+        BEATS: inputs[1]
+      }
+    })
   },
   setInstrument: {
     kind: 'function',
     blockType: 'command',
     args: [10],
-    create: ({ inputs, fields }, compiler) => {
-      const shadow0 = compiler.insertBlock({
-        opcode: 'music_menu_INSTRUMENT',
-        fields: {
-          INSTRUMENT: fields[0] || ['', null]
-        },
-        shadow: true
-      });
-
-      return {
-        opcode: 'music_setInstrument',
-        inputs: {
-          INSTRUMENT: fields[0] ? [1, shadow0] : [3, inputs[0][1], shadow0]
-        }
-      };
-    }
+    create: ({ inputs, fields }, compiler) => ({
+      opcode: 'music_setInstrument',
+      inputs: {
+        INSTRUMENT: compiler.menu('music_menu_INSTRUMENT', 'INSTRUMENT', fields[0], inputs[0])
+      }
+    })
   },
   midiSetInstrument: {
     kind: 'function',

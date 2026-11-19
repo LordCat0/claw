@@ -279,7 +279,9 @@ class ASTBuilder {
     this.advance();
     const names = [];
     const defaultImport = this.current().type !== TokenType.LBRACE;
-    if (this.current().type === TokenType.LBRACE) {
+    if (defaultImport) {
+      names.push(this.expect(TokenType.IDENTIFIER).value as string);
+    } else {
       this.advance();
       if (this.current().type !== TokenType.RBRACE) {
         names.push(this.expect(TokenType.IDENTIFIER).value as string);
@@ -289,8 +291,6 @@ class ASTBuilder {
         }
       }
       this.expect(TokenType.RBRACE);
-    } else {
-      names.push(this.expect(TokenType.IDENTIFIER).value as string);
     }
     const fromToken = this.expect(TokenType.IDENTIFIER);
     if (fromToken.value !== 'from') {
@@ -320,11 +320,10 @@ class ASTBuilder {
         names.push(this.expect(TokenType.IDENTIFIER).value as string);
       }
       this.expect(TokenType.RBRACE);
-      this.expect(TokenType.SEMICOLON);
     } else {
       names.push(this.expect(TokenType.IDENTIFIER).value as string);
-      this.expect(TokenType.SEMICOLON);
     }
+    this.expect(TokenType.SEMICOLON);
     return {
       type: NodeType.ExportStatement,
       names
@@ -452,22 +451,14 @@ class ASTBuilder {
   }
 
   parseUnary (): Expression {
-    if (this.current().type === TokenType.NOT) {
+    const token = this.current();
+    if (token.type === TokenType.NOT ||
+        (token.type === TokenType.OPERATOR && token.value === '-')) {
       this.advance();
-      const value = this.parseUnary();
       return {
         type: NodeType.UnaryExpression,
-        operator: '!',
-        value
-      };
-    }
-    if (this.current().type === TokenType.OPERATOR && this.current().value === '-') {
-      this.advance();
-      const value = this.parseUnary();
-      return {
-        type: NodeType.UnaryExpression,
-        operator: '-',
-        value
+        operator: token.type === TokenType.NOT ? '!' : '-',
+        value: this.parseUnary()
       };
     }
     return this.parseCallExpression();
