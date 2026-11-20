@@ -4,6 +4,7 @@ import { Analysis } from './analysis.ts';
 import type { Range } from './parser.ts';
 
 const language = 'claw';
+const validationDelay = 500;
 const identifier = /[a-zA-Z_][a-zA-Z_0-9]*/;
 const itemKinds = {
   function: vscode.CompletionItemKind.Function,
@@ -29,6 +30,7 @@ function describe (symbol: Symbol) {
 
 export function activate (context: vscode.ExtensionContext) {
   const cache = new WeakMap<vscode.TextDocument, { version: number; analysis: Analysis }>();
+  const validationTimers = new WeakMap<vscode.TextDocument, ReturnType<typeof setTimeout>>();
   const diagnostics = vscode.languages.createDiagnosticCollection(language);
 
   function analyze (document: vscode.TextDocument) {
@@ -91,11 +93,19 @@ export function activate (context: vscode.ExtensionContext) {
     diagnostics,
     vscode.workspace.onDidOpenTextDocument(validate),
     vscode.workspace.onDidChangeTextDocument(({ document, contentChanges }) => {
-      if (contentChanges.length) {
-        validate(document);
+      if (document.languageId === language && contentChanges.length) {
+        clearTimeout(validationTimers.get(document));
+        validationTimers.set(document, setTimeout(() => {
+          validationTimers.delete(document);
+          validate(document);
+        }, validationDelay));
       }
     }),
-    vscode.workspace.onDidCloseTextDocument(document => diagnostics.delete(document.uri)),
+    vscode.workspace.onDidCloseTextDocument(document => {
+      clearTimeout(validationTimers.get(document));
+      validationTimers.delete(document);
+      diagnostics.delete(document.uri);
+    }),
     vscode.languages.registerCompletionItemProvider(language, {
       provideCompletionItems (document, position) {
         const analysis = analyze(document);
