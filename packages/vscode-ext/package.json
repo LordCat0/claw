@@ -1,7 +1,8 @@
 {
   "name": "vscode-ext",
   "displayName": "Claw",
-  "description": "Language support for Claw",
+  "description": "Language support for Claw.",
+  "icon": "icon.png",
   "version": "1.0.0",
   "publisher": "LordCat0",
   "license": "GPL-3.0-only",
