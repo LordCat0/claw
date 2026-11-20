@@ -26,7 +26,7 @@ interface Symbol {
 }
 
 type Symbols = Record<string, Symbol>;
-type ExpressionUse = 'value' | 'statement' | 'binding' | 'call' | 'write';
+type ExpressionUse = 'value' | 'statement' | 'binding' | 'call' | 'assign' | 'increment' | 'decrement';
 
 interface Scope extends Range {
   parent?: Scope;
@@ -298,7 +298,7 @@ export class Analysis {
         return false;
       }
       case NodeType.Assignment:
-        this.visitExpression(node.target, scope, 'write');
+        this.visitExpression(node.target, scope, 'assign');
         this.visitExpression(node.value, scope);
         return false;
       case NodeType.ExpressionStatement:
@@ -433,7 +433,7 @@ export class Analysis {
         this.visitExpression(node.index, scope);
         break;
       case NodeType.UpdateExpression:
-        this.visitExpression(node.argument, scope, 'write');
+        this.visitExpression(node.argument, scope, node.operator === '++' ? 'increment' : 'decrement');
         break;
       case NodeType.ConditionalExpression: {
         const branchUse = use === 'statement' ? 'statement' : 'value';
@@ -460,7 +460,8 @@ export class Analysis {
     if (use === 'call') {
       this.report('Expected a function to call.', range);
     }
-    if (use === 'write' && node.type !== NodeType.IndexExpression) {
+    if ((use === 'assign' || use === 'increment' || use === 'decrement') &&
+        node.type !== NodeType.IndexExpression) {
       this.report('Expected a writable variable or array element.', range);
     }
   }
@@ -472,8 +473,11 @@ export class Analysis {
 
     if (use === 'call' && symbol.kind !== 'function') {
       this.report(`"${symbol.name}" is not a function.`, range);
-    } else if (use === 'write' && (symbol.kind !== 'variable' || symbol.readOnly)) {
-      this.report(`"${symbol.name}" cannot be assigned to.`, range);
+    } else if ((use === 'assign' || use === 'increment' || use === 'decrement') &&
+        (symbol.kind !== 'variable' || symbol.readOnly)) {
+      const operation = use === 'assign' ? 'assign to' : use;
+      const target = symbol.kind === 'constant' ? `constant "${symbol.name}"` : `"${symbol.name}"`;
+      this.report(`Cannot ${operation} ${target}.`, range);
     } else if ((use === 'value' || use === 'statement') &&
         (symbol.kind === 'function' || symbol.kind === 'object')) {
       this.report(`"${symbol.name}" cannot be used as a value.`, range);
