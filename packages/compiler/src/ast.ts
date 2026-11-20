@@ -5,6 +5,7 @@ import {
   type Token,
   type Statement,
   type Expression,
+  type MemberExpression,
   type Program,
   type Block,
   type VarDeclaration,
@@ -543,17 +544,7 @@ class ASTBuilder {
       }
 
       if (this.current().type === TokenType.DOT) {
-        this.advance();
-        const token = this.current();
-        if (token.type !== TokenType.IDENTIFIER && token.type !== TokenType.KEYWORD) {
-          this.expect(TokenType.IDENTIFIER);
-        }
-        this.advance();
-        expr = {
-          type: NodeType.MemberExpression,
-          object: expr,
-          property: token.value as string
-        };
+        expr = this.parseMemberExpression(expr);
         continue;
       }
 
@@ -588,6 +579,21 @@ class ASTBuilder {
     }
 
     return expr;
+  }
+
+  parseMemberExpression (object: Expression): MemberExpression {
+    this.advance();
+    const token = this.current();
+    if (token.type !== TokenType.IDENTIFIER && token.type !== TokenType.KEYWORD) {
+      this.expect(TokenType.IDENTIFIER);
+    }
+    this.advance();
+
+    return {
+      type: NodeType.MemberExpression,
+      object,
+      property: token.value as string
+    };
   }
 
   parsePrimary (): Expression {

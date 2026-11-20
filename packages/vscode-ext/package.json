@@ -1,0 +1,49 @@
+{
+  "name": "vscode-ext",
+  "displayName": "Claw",
+  "description": "Language support for Claw",
+  "version": "1.0.0",
+  "publisher": "LordCat0",
+  "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LordCat0/claw.git",
+    "directory": "packages/vscode-ext"
+  },
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": ["Programming Languages"],
+  "main": "./dist/extension.cjs",
+  "scripts": {
+    "build": "esbuild extension=src/extension.ts claw=../shared/assets/claw.svg --bundle --platform=node --target=node20 --external:vscode --loader:.svg=copy --out-extension:.js=.cjs --outdir=dist",
+    "typecheck": "tsc --noEmit",
+    "vscode:prepublish": "npm run build"
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "claw",
+        "aliases": ["Claw"],
+        "extensions": [".claw"],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./dist/claw.svg",
+          "dark": "./dist/claw.svg"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "claw",
+        "scopeName": "source.claw",
+        "path": "./syntaxes/claw.tmLanguage.json"
+      }
+    ]
+  },
+  "devDependencies": {
+    "@types/vscode": "~1.96.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  }
+}

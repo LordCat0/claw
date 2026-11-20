@@ -7,9 +7,11 @@
   "exports": {
     ".": {
       "types": "./src/types/index.ts"
-    }
+    },
+    "./assets/claw.svg": "./assets/claw.svg"
   },
   "files": [
-    "src"
+    "src",
+    "assets"
   ]
 }

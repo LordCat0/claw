@@ -1,0 +1,127 @@
+{
+  "name": "Claw",
+  "scopeName": "source.claw",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#function" },
+    {
+      "match": "\\b(var)\\s+([a-zA-Z_]\\w*)(?=\\s*=\\s*function\\b)",
+      "captures": {
+        "1": { "name": "storage.type.js" },
+        "2": { "name": "meta.definition.function.js entity.name.function.js" }
+      }
+    },
+    {
+      "match": "\\b(var)\\s+([a-zA-Z_]\\w*)",
+      "captures": {
+        "1": { "name": "storage.type.js" },
+        "2": { "name": "meta.definition.variable.js variable.other.readwrite.js" }
+      }
+    },
+    { "match": "\\b(?:const|var)\\b", "name": "storage.type.js" },
+    { "match": "\\bfunction\\b", "name": "storage.type.function.js" },
+    { "match": "\\b(?:if|else)\\b", "name": "keyword.control.conditional.js" },
+    { "match": "\\b(?:while|for|repeat)\\b", "name": "keyword.control.loop.js" },
+    { "match": "\\b(?:switch|case|default)\\b", "name": "keyword.control.switch.js" },
+    { "match": "\\b(?:return|break|continue)\\b", "name": "keyword.control.flow.js" },
+    { "match": "\\bimport\\b", "name": "keyword.control.import.js" },
+    { "match": "\\bexport\\b", "name": "keyword.control.export.js" },
+    { "match": "\\bfrom\\b(?=\\s*['\"])", "name": "keyword.control.from.js" },
+    { "match": "\\btrue\\b", "name": "constant.language.boolean.true.js" },
+    { "match": "\\bfalse\\b", "name": "constant.language.boolean.false.js" },
+    { "match": "(?<!\\w)(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)", "name": "constant.numeric.decimal.js" },
+    { "match": "\\b[a-zA-Z_]\\w*(?=\\s*\\()", "name": "meta.function-call.js entity.name.function.js" },
+    {
+      "match": "(\\.)\\s*([a-zA-Z_]\\w*)(?=\\s*\\()",
+      "captures": {
+        "1": { "name": "punctuation.accessor.js" },
+        "2": { "name": "meta.function-call.js entity.name.function.js" }
+      }
+    },
+    {
+      "match": "(\\.)\\s*([a-zA-Z_]\\w*)",
+      "captures": {
+        "1": { "name": "punctuation.accessor.js" },
+        "2": { "name": "variable.other.property.js" }
+      }
+    },
+    { "match": "==|!=", "name": "keyword.operator.comparison.js" },
+    { "match": "<=|>=|[<>]", "name": "keyword.operator.relational.js" },
+    { "match": "[+*/%\\-]=", "name": "keyword.operator.assignment.compound.js" },
+    { "match": "=", "name": "keyword.operator.assignment.js" },
+    { "match": "&&|\\|\\||!", "name": "keyword.operator.logical.js" },
+    { "match": "\\+\\+", "name": "keyword.operator.increment.js" },
+    { "match": "--", "name": "keyword.operator.decrement.js" },
+    { "match": "[+*/%\\-]", "name": "keyword.operator.arithmetic.js" },
+    { "match": "[?:]", "name": "keyword.operator.ternary.js" },
+    { "match": "\\.", "name": "punctuation.accessor.js" },
+    { "match": ",", "name": "punctuation.separator.comma.js" },
+    { "match": ";", "name": "punctuation.terminator.statement.js" },
+    { "match": "\\b[a-zA-Z_]\\w*", "name": "variable.other.readwrite.js" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.js",
+          "begin": "//",
+          "end": "$",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.comment.js" }
+          }
+        },
+        {
+          "name": "comment.block.js",
+          "begin": "/\\*",
+          "end": "\\*/",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.comment.js" }
+          },
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.comment.js" }
+          }
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.js",
+          "begin": "\"",
+          "end": "\"|$",
+          "patterns": [{ "include": "#escape" }]
+        },
+        {
+          "name": "string.quoted.single.js",
+          "begin": "'",
+          "end": "'|$",
+          "patterns": [{ "include": "#escape" }]
+        }
+      ]
+    },
+    "escape": {
+      "match": "\\\\.",
+      "name": "constant.character.escape.js"
+    },
+    "function": {
+      "name": "meta.function.js",
+      "begin": "\\b(function)(\\*)?(?:(?:\\s+|(?<=\\*))([a-zA-Z_]\\w*))?\\s*(\\()",
+      "beginCaptures": {
+        "1": { "name": "storage.type.function.js" },
+        "2": { "name": "keyword.generator.asterisk.js" },
+        "3": { "name": "meta.definition.function.js entity.name.function.js" },
+        "4": { "name": "punctuation.definition.parameters.begin.js" }
+      },
+      "end": "(\\))|(?=[{;])",
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.parameters.end.js" }
+      },
+      "patterns": [
+        { "include": "#comments" },
+        { "match": "\\b[a-zA-Z_]\\w*", "name": "variable.parameter.js" },
+        { "match": ",", "name": "punctuation.separator.parameter.js" }
+      ]
+    }
+  }
+}
