@@ -20,7 +20,7 @@
     "@clerk/react": "^6.18.9",
     "@tanstack/react-query": "^5.107.1",
     "@vanilla-extract/css": "^1.21.3",
-    "lucide-preact": "^1.72.0",
+    "lucide-preact": "^1.74.0",
     "marked-react": "^4.0.1",
     "preact": "^11.2.0",
     "preact-router": "^4.1.2",
