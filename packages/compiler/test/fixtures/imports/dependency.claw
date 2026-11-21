@@ -1,0 +1,3 @@
+var shared = 'shared value';
+sprite.say('dependency');
+export shared;

@@ -1,0 +1,4 @@
+import { shared } from './dependency.claw';
+
+sprite.think(shared);
+export shared;

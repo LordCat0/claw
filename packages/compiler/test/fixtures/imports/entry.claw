@@ -1,0 +1,4 @@
+import { shared } from './wrapper';
+import {} from './dependency';
+
+sprite.say(shared);

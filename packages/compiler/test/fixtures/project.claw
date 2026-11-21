@@ -1,0 +1,7 @@
+list values = [2, 5];
+
+repeat (2) {
+  sprite.say(10 - 2 * 3);
+  sprite.think(values[0]);
+}
+sprite.say('done');
