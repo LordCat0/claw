@@ -16,6 +16,7 @@ class Scope {
   firstBlock: string | null;
   lastBlock: string | null;
   frame: CallFrame | null;
+  inTry: boolean;
   loopState: VariableBinding | null;
   breakState: VariableBinding | null;
   parameters: string[];
@@ -37,6 +38,7 @@ class Scope {
     this.firstBlock = null;
     this.lastBlock = null;
     this.frame = parent?.frame || null;
+    this.inTry = parent?.inTry || false;
     this.loopState = parent?.loopState || null;
     this.breakState = parent?.breakState || null;
     this.parameters = parent?.parameters || [];
@@ -60,7 +62,7 @@ class Scope {
   }
 
   defineVariable (name: string, id: string, constant = false) {
-    if (this.isFunction && this.frame) {
+    if (this.frame) {
       const variable = this.frame.variable();
       this.define(name, variable);
 
@@ -157,6 +159,7 @@ class Scope {
     const child = new Scope(this, newFunction || this.isFunction);
 
     if (newFunction) {
+      child.inTry = false;
       child.loopState = null;
       child.breakState = null;
       child.variables = [];

@@ -40,6 +40,9 @@ export enum Keyword {
   function = 'function',
   'function*' = 'function*',
   return = 'return',
+  try = 'try',
+  catch = 'catch',
+  throw = 'throw',
   const = 'const',
   var = 'var',
   true = 'true',
@@ -73,6 +76,8 @@ export const enum NodeType {
   FunctionDeclaration = 'FunctionDeclaration',
   FunctionExpression = 'FunctionExpression',
   ReturnStatement = 'ReturnStatement',
+  TryStatement = 'TryStatement',
+  ThrowStatement = 'ThrowStatement',
   ImportStatement = 'ImportStatement',
   ExportStatement = 'ExportStatement',
   BinaryExpression = 'BinaryExpression',
@@ -103,6 +108,8 @@ export type Statement =
   | ContinueStatement
   | FunctionDeclaration
   | ReturnStatement
+  | TryStatement
+  | ThrowStatement
   | ImportStatement
   | ExportStatement;
 
@@ -212,6 +219,18 @@ export interface FunctionExpression {
 export interface ReturnStatement {
   type: NodeType.ReturnStatement;
   value: Expression | null;
+}
+
+export interface TryStatement {
+  type: NodeType.TryStatement;
+  body: Block;
+  parameter: string | null;
+  handler: Block;
+}
+
+export interface ThrowStatement {
+  type: NodeType.ThrowStatement;
+  value: Expression;
 }
 
 export interface ImportStatement {

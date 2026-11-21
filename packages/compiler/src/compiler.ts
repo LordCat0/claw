@@ -20,6 +20,7 @@ import {
   numericFunctions
 } from './blocks/categories/arrays.ts';
 import control from './blocks/categories/control.ts';
+import data from './blocks/categories/data.ts';
 import listVariable from './util/list-variable.ts';
 import {
   globals,
@@ -49,12 +50,20 @@ import {
   type FunctionDeclaration,
   type FunctionExpression,
   type SwitchStatement,
+  type TryStatement,
   type WhileStatement,
   type RepeatStatement,
   type ForStatement,
   type VariableBinding,
   type Program
 } from './types.ts';
+
+const enum ProcedureExit {
+  None,
+  Stop,
+  Throw,
+  Return
+}
 
 class Compiler {
   targets: Sprite[];
@@ -85,6 +94,7 @@ class Compiler {
   private _arrayInputs: Record<string, ScratchInput>;
   private _programs: Record<string, Program>;
   private _usesThread: boolean;
+  private _usesThrow: boolean;
   private _lists: Record<string, [string, string]>;
   private _rootCount: number;
   private _frameSizes: number[];
@@ -156,6 +166,7 @@ class Compiler {
     this._arrayInputs = {};
     this._programs = {};
     this._usesThread = false;
+    this._usesThrow = false;
     Object.assign(this._globals.bindings, globals);
   }
 
@@ -318,7 +329,12 @@ class Compiler {
     }
   }
 
-  appendEndBlock (scope: Scope, block: BlockOptions, condition?: ScratchInput) {
+  appendEndBlock (
+    scope: Scope,
+    block: BlockOptions,
+    condition?: ScratchInput,
+    exit = ProcedureExit.Stop
+  ) {
     const branch = condition && this.append(scope, {
       opcode: 'control_if',
       inputs: {
@@ -327,16 +343,18 @@ class Compiler {
     });
     const body = branch ? scope.createChild() : scope;
 
-    if (scope.frame?.canStop && block.opcode === 'control_stop' &&
-        block.fields.STOP_OPTION[0] === 'this script') {
-      this.write(scope.frame.stopFlag(), this.number(1), body);
+    if (block.opcode === 'control_stop' && block.fields.STOP_OPTION[0] === 'this script' &&
+        (scope.inTry || (exit === ProcedureExit.Stop && scope.frame?.canStop))) {
+      this.write(scope.frame.exitStatus(), this.number(exit), body);
     }
 
-    this.append(body, block);
+    const end = this.append(body, block);
 
     if (branch) {
       this.attachSubstack(branch, 'SUBSTACK', body);
     }
+
+    return branch || end;
   }
 
   temporary (scope: Scope, scalar = false): VariableBinding {
@@ -701,8 +719,10 @@ class Compiler {
     asValue = false,
     values?: ScratchInput[]
   ): Promise<ScratchInput> {
-    if (definition.blockType === 'hat' && scope.isFunction) {
-      throw new Error('Event handlers must be declared outside functions.');
+    if (definition.blockType === 'hat' && (scope.isFunction || scope.inTry)) {
+      throw new Error(scope.isFunction
+        ? 'Event handlers must be declared outside functions.'
+        : 'Event handlers must be declared outside try blocks.');
     }
 
     const count = (values || expressions).length;
@@ -919,19 +939,33 @@ class Compiler {
 
     if (procedure?.frame) {
       const frame = procedure.frame;
-      const stopped = frame.canStop
-        ? this.capture(this.read(frame.stopFlag(frameIndex)), scope)
+      const status = frame.canStop || frame.canThrow
+        ? this.capture(this.read(frame.exitStatus(frameIndex)), scope)
         : null;
-      const result = asValue ? this.capture(frame.readResult(frameIndex), scope) : null;
+      const result = asValue || frame.canThrow
+        ? this.capture(frame.readResult(frameIndex), scope)
+        : null;
       await frame.release(scope, frameIndex);
 
-      if (stopped) {
+      if (frame.canStop) {
         this.appendEndBlock(
-          scope, control.thread.stop.create(), this.equals(stopped, this.number(1))
+          scope, control.thread.stop.create(), this.equals(status, this.number(ProcedureExit.Stop))
         );
       }
 
-      return result || scope.lastBlock;
+      if (frame.canThrow) {
+        const branch = this.append(scope, {
+          opcode: 'control_if',
+          inputs: {
+            CONDITION: this.equals(status, this.number(ProcedureExit.Throw))
+          }
+        });
+        const failure = scope.createChild();
+        this.throwValue(result, failure);
+        this.attachSubstack(branch, 'SUBSTACK', failure);
+      }
+
+      return asValue ? result : scope.lastBlock;
     }
 
     if (definition.shared) {
@@ -1337,6 +1371,10 @@ class Compiler {
         statement.cases.some(clause => clause.body.some(child => this.hasControl(child, type)));
     }
 
+    if (statement.type === NodeType.TryStatement) {
+      return this.hasControl(statement.body, type) || this.hasControl(statement.handler, type);
+    }
+
     if (statement.type !== NodeType.IfStatement) {
       return false;
     }
@@ -1349,7 +1387,7 @@ class Compiler {
     return statement.cases.every(({ body }, index) => {
       for (const child of body) {
         if (child.type === NodeType.BreakStatement || child.type === NodeType.ContinueStatement ||
-            child.type === NodeType.ReturnStatement) {
+            child.type === NodeType.ReturnStatement || child.type === NodeType.ThrowStatement) {
           return true;
         }
 
@@ -1801,8 +1839,12 @@ class Compiler {
           ? await this.parseExpression(statement.value, scope, true)
           : [1, [10, '']] as ScratchInput;
         this.write(scope.result, value, scope);
-        return this.append(scope, control.thread.stop.create());
+        return this.appendEndBlock(scope, control.thread.stop.create(), undefined, ProcedureExit.Return);
       }
+      case NodeType.TryStatement:
+        return this.parseTry(statement, scope);
+      case NodeType.ThrowStatement:
+        return this.throwValue(await this.parseExpression(statement.value, scope, true), scope);
       case NodeType.ImportStatement: {
         if (scope.parent !== this._globals) {
           throw new Error('Imports are only allowed at module scope.');
@@ -1859,6 +1901,93 @@ class Compiler {
     }
   }
 
+  throwValue (value: ScratchInput, scope: Scope) {
+    if (scope.frame?.canThrow) {
+      this.write(scope.frame.result, value, scope);
+      this.write(scope.frame.exitStatus(), this.number(ProcedureExit.Throw), scope);
+      return this.append(scope, control.thread.stop.create());
+    }
+
+    this.append(scope, data.globals.print.create({
+      inputs: [value],
+      fields: [],
+      bodies: []
+    }, this));
+    return this.append(scope, control.project.stop.create());
+  }
+
+  async parseTry (statement: TryStatement, scope: Scope) {
+    // Stopping a Scratch custom block returns control to its caller
+    const bodyScope = scope.createChild();
+    const frame = new CallFrame(this, true, true);
+    bodyScope.frame = frame;
+    bodyScope.inTry = true;
+    bodyScope.temporaries = {
+      values: [],
+      next: 0
+    };
+    bodyScope.parameters = [frame.parameter, ...scope.parameters];
+
+    const { definition, call } = this.createProcedure(
+      `$try@${bodyScope.id}`, bodyScope.parameters, false
+    );
+    bodyScope.lastBlock = definition;
+    this.write(frame.exitStatus(), this.number(ProcedureExit.None), bodyScope);
+
+    if (statement.parameter) {
+      this.write(frame.result, [1, [10, '']], bodyScope);
+    }
+
+    await this.parseASTBody(statement.body.body, bodyScope);
+    frame.finalize();
+
+    const frameIndex = await frame.allocate(scope);
+    const captures = scope.parameters.map(name => {
+      return this.reporter('argument_reporter_string_number', {}, { VALUE: [name, null] });
+    });
+    this.append(scope, call([frameIndex, ...captures]));
+
+    const status = this.capture(this.read(frame.exitStatus(frameIndex)), scope);
+    const value = statement.parameter ? this.capture(frame.readResult(frameIndex), scope) : null;
+    await frame.release(scope, frameIndex);
+
+    this.appendEndBlock(
+      scope, control.thread.stop.create(), this.equals(status, this.number(ProcedureExit.Stop))
+    );
+
+    if (scope.isFunction) {
+      this.appendEndBlock(
+        scope,
+        control.thread.stop.create(),
+        this.equals(status, this.number(ProcedureExit.Return)),
+        ProcedureExit.Return
+      );
+    }
+
+    const branch = this.append(scope, {
+      opcode: 'control_if',
+      inputs: {
+        CONDITION: this.equals(status, this.number(ProcedureExit.Throw))
+      }
+    });
+    const handler = scope.createChild();
+
+    if (statement.parameter) {
+      const variable = handler.defineVariable(statement.parameter, uid());
+
+      if (variable.storage) {
+        this.root.variables[variable.storage.id] = [variable.storage.name, ''];
+      }
+
+      this.write(variable, value, handler);
+    }
+
+    await this.parseASTBody(statement.handler.body, handler);
+    await this.releaseScope(handler);
+    this.attachSubstack(branch, 'SUBSTACK', handler);
+    return branch;
+  }
+
   createProcedure (name: string, args: string[], warp: boolean) {
     const argumentIds = args.map(() => uid());
     const mutation: Mutation = {
@@ -1896,8 +2025,17 @@ class Compiler {
     });
     return {
       definition,
-      argumentIds,
-      mutation
+      call: (inputs: ScratchInput[]): BlockOptions => ({
+        opcode: 'procedures_call',
+        inputs: Object.fromEntries(argumentIds.map((id, i) => [id, inputs[i]])),
+        mutation: {
+          argumentids: mutation.argumentids,
+          children: [],
+          proccode: mutation.proccode,
+          tagName: 'mutation',
+          warp: mutation.warp
+        }
+      })
     };
   }
 
@@ -1916,10 +2054,12 @@ class Compiler {
       create: (args, compiler) => create(args, compiler),
       compile: async () => {
         const funcScope = scope.createChild(true);
-        const canStop = this._usesThread && (!scope.internal || name === 'transform');
+        const handlesExit = !scope.internal || name === 'transform';
+        const canStop = this._usesThread && handlesExit;
+        const canThrow = this._usesThrow && handlesExit;
         funcScope.frame = !binding.shared &&
-          (canStop || this.arrays || this.needsFrame(expression.body))
-          ? new CallFrame(this, canStop)
+          (canStop || canThrow || this.arrays || this.needsFrame(expression.body))
+          ? new CallFrame(this, canStop, canThrow)
           : null;
         funcScope.referenceVariables = binding.referenceVariables || [];
 
@@ -1941,7 +2081,7 @@ class Compiler {
         const captures = scope.parameters;
         const hidden = funcScope.frame ? [funcScope.frame.parameter] : [];
         const parameters = [...args, ...references.filter(Boolean), ...hidden, ...thread, ...captures];
-        const { definition, argumentIds, mutation } = this.createProcedure(
+        const { definition, call } = this.createProcedure(
           `${name}@${scope.id}`, parameters, expression.warp
         );
         funcScope.lastBlock = definition;
@@ -1964,20 +2104,10 @@ class Compiler {
           result: funcScope.result,
           variables: funcScope.variables
         };
-        create = ({ inputs }) => ({
-          opcode: 'procedures_call',
-          inputs: Object.fromEntries(argumentIds.map((id, i) => [id, inputs[i]])),
-          mutation: {
-            argumentids: mutation.argumentids,
-            children: [],
-            proccode: mutation.proccode,
-            tagName: 'mutation',
-            warp: mutation.warp
-          }
-        });
+        create = ({ inputs }) => call(inputs);
 
-        if (funcScope.frame?.canStop) {
-          this.write(funcScope.frame.stopFlag(), this.number(0), funcScope);
+        if (funcScope.frame?.canStop || funcScope.frame?.canThrow) {
+          this.write(funcScope.frame.exitStatus(), this.number(ProcedureExit.None), funcScope);
         }
 
         if (funcScope.frame) {
@@ -2186,6 +2316,16 @@ class Compiler {
     });
   }
 
+  usesThrow (node: Program | Statement | Expression | Block): boolean {
+    if (node.type === NodeType.ThrowStatement) {
+      return true;
+    }
+
+    return Object.values(node).flat().some(value => {
+      return value && typeof value === 'object' && this.usesThrow(value);
+    });
+  }
+
   async compileFile (filePath: string, internal = false) {
     const ast = this.loadPrograms(filePath);
     filePath = fs.realpathSync(filePath);
@@ -2244,6 +2384,7 @@ class Compiler {
     const programs = Object.values(this._programs);
     this.arrays = programs.some(program => this.usesArrays(program));
     this._usesThread = programs.some(program => this.usesThread(program));
+    this._usesThrow = programs.some(program => this.usesThrow(program));
     this.builtins = await this.compileFile(
       fileURLToPath(new URL('./internal/arrays.claw', import.meta.url)), true
     );

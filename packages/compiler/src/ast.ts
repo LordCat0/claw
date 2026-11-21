@@ -17,6 +17,8 @@ import {
   type FunctionDeclaration,
   type FunctionExpression,
   type ReturnStatement,
+  type TryStatement,
+  type ThrowStatement,
   type ImportStatement,
   type ExportStatement
 } from './types.ts';
@@ -115,6 +117,10 @@ class ASTBuilder {
           return this.parseFunctionDeclaration(true);
         case Keyword.return:
           return this.parseReturn();
+        case Keyword.try:
+          return this.parseTry();
+        case Keyword.throw:
+          return this.parseThrow();
         case Keyword.import:
           return this.parseImport();
         case Keyword.export:
@@ -333,6 +339,42 @@ class ASTBuilder {
     this.expect(TokenType.SEMICOLON);
     return {
       type: NodeType.ReturnStatement,
+      value
+    };
+  }
+
+  parseTry (): TryStatement {
+    this.advance();
+    const body = this.parseBlock();
+    this.expect(TokenType.KEYWORD, Keyword.catch);
+
+    let parameter = null;
+    if (this.current().type === TokenType.LPAREN) {
+      this.advance();
+      parameter = this.expect(TokenType.IDENTIFIER).value as string;
+      this.expect(TokenType.RPAREN);
+    }
+
+    return {
+      type: NodeType.TryStatement,
+      body,
+      parameter,
+      handler: this.parseBlock()
+    };
+  }
+
+  parseThrow (): ThrowStatement {
+    const keyword = this.advance();
+    const token = this.current();
+
+    if (token.line !== keyword.line) {
+      throw new Error(`Unexpected line break after 'throw' at line ${keyword.line}, col ${keyword.col}`);
+    }
+
+    const value = this.parseExpression();
+    this.expect(TokenType.SEMICOLON);
+    return {
+      type: NodeType.ThrowStatement,
       value
     };
   }

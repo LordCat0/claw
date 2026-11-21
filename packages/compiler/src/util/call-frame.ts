@@ -11,14 +11,16 @@ class CallFrame {
   parameter: string;
   result: VariableBinding;
   canStop: boolean;
+  canThrow: boolean;
   private _compiler: Compiler;
   private _slots: number;
   private _bucket: [number, string];
   private _size: [number, string];
 
-  constructor (compiler: Compiler, canStop: boolean) {
+  constructor (compiler: Compiler, canStop: boolean, canThrow: boolean) {
     this._compiler = compiler;
     this.canStop = canStop;
+    this.canThrow = canThrow;
     this.parameter = `$frame@${uid()}`;
     this._slots = 0;
     this._bucket = [4, '0'];
@@ -41,8 +43,8 @@ class CallFrame {
     });
   }
 
-  stopFlag (base?: ScratchInput) {
-    // An allocated frame can use its free-list link as the stop flag
+  exitStatus (base?: ScratchInput) {
+    // An allocated frame can use its free-list link to record how it exits
     return listVariable(this._compiler.list('$frames'), this.index(0, base));
   }
 
