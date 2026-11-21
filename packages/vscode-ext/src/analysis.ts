@@ -30,7 +30,7 @@ type ExpressionUse = 'value' | 'statement' | 'binding' | 'call' | 'assign' | 'in
 
 interface Scope extends Range {
   parent?: Scope;
-  kind: 'module' | 'block' | 'function' | 'loop' | 'switch';
+  kind: 'module' | 'block' | 'function' | 'loop' | 'switch' | 'try';
   symbols: Symbol[];
 }
 
@@ -306,6 +306,22 @@ export class Analysis {
         return false;
       case NodeType.Block:
         return this.visitBody(node.body, this.addScope(node, scope));
+      case NodeType.TryStatement: {
+        const bodyScope = this.addScope(node.body, scope, 'try');
+        const stopped = this.visitBody(node.body.body, bodyScope);
+        const handlerScope = this.addScope(node.handler, scope);
+        if (node.parameter) {
+          const { first } = this.syntax.spans.get(node.handler);
+          const parameter = this.syntax.tokens[first - 2];
+          handlerScope.start = parameter.start;
+          this.define(handlerScope, parameter, { kind: 'variable' });
+        }
+        const handlerStopped = this.visitBody(node.handler.body, handlerScope);
+        return stopped && handlerStopped;
+      }
+      case NodeType.ThrowStatement:
+        this.visitExpression(node.value, scope);
+        return true;
       case NodeType.IfStatement: {
         this.visitExpression(node.test, scope);
         const consequent = this.visit(node.consequent, scope);
@@ -497,6 +513,8 @@ export class Analysis {
       this.report(`"${callee.name}" expects ${expected} ${unit}, got ${count}.`, range);
     } else if (callee.blockType === 'hat' && this.inside(scope, 'function')) {
       this.report('Event handlers must be declared outside functions.', range);
+    } else if (callee.blockType === 'hat' && this.inside(scope, 'try')) {
+      this.report('Event handlers must be declared outside try blocks.', range);
     } else if (use !== 'statement' && (callee.blockType === 'command' || callee.blockType === 'hat')) {
       this.report(`"${callee.name}" does not return a value.`, range);
     } else if (callee.procedure && this.reachable) {

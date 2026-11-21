@@ -25,6 +25,7 @@
     { "match": "\\b(?:while|for|repeat)\\b", "name": "keyword.control.loop.js" },
     { "match": "\\b(?:switch|case|default)\\b", "name": "keyword.control.switch.js" },
     { "match": "\\b(?:return|break|continue)\\b", "name": "keyword.control.flow.js" },
+    { "match": "\\b(?:try|catch|throw)\\b", "name": "keyword.control.trycatch.js" },
     { "match": "\\bimport\\b", "name": "keyword.control.import.js" },
     { "match": "\\bexport\\b", "name": "keyword.control.export.js" },
     { "match": "\\bfrom\\b(?=\\s*['\"])", "name": "keyword.control.from.js" },
