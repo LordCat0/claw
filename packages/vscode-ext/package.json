@@ -6,6 +6,7 @@
   "version": "1.0.0",
   "publisher": "LordCat0",
   "license": "GPL-3.0-only",
+  "type": "module",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/LordCat0/claw.git",
@@ -21,6 +22,7 @@
     "package": "npx @vscode/vsce package --no-dependencies --out dist/claw.vsix",
     "preview": "npm run package && code --install-extension dist/claw.vsix --force",
     "typecheck": "tsc --noEmit",
+    "test": "node --experimental-transform-types --test test/*.test.ts",
     "vscode:prepublish": "npm run build"
   },
   "contributes": {

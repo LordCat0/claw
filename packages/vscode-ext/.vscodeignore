@@ -1,5 +1,6 @@
 .gitignore
 .vscodeignore
 src/**
+test/**
 tsconfig.json
 dist/*.vsix
