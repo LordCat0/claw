@@ -1,5 +1,6 @@
 import { Button } from '@base-ui/react/button';
 import { useQuery } from '@tanstack/react-query';
+import { T, useGT } from 'gt-react';
 import { ArrowLeft, ChevronRight, FileCode, Folder } from 'lucide-preact';
 import { useMemo, useState } from 'preact/hooks';
 import { env } from '../../config';
@@ -13,6 +14,7 @@ interface PackageCodeProps {
 }
 
 export default function PackageCode(props: PackageCodeProps) {
+  const gt = useGT();
   const [path, setPath] = useState('');
   const { data, isPending, isError, refetch } = useQuery({
     queryKey: ['package-files', props.name, props.version],
@@ -65,15 +67,15 @@ export default function PackageCode(props: PackageCodeProps) {
   const lines = useMemo(() => source?.split(/\r\n|\r|\n/) || [], [source]);
 
   return (
-    <section aria-label="Package code">
+    <section aria-label={gt('Package code')}>
       {isPending && (
-        <p className={packageStyles.message} role="status">Loading files…</p>
+        <p className={packageStyles.message} role="status"><T>Loading files…</T></p>
       )}
       {isError && (
         <div className={packageStyles.message} role="alert">
-          <p>Could not load package files.</p>
+          <p><T>Could not load package files.</T></p>
           <Button className={packageStyles.button} onClick={() => refetch()}>
-            Try again
+            <T>Try again</T>
           </Button>
         </div>
       )}
@@ -84,16 +86,17 @@ export default function PackageCode(props: PackageCodeProps) {
               className={styles.back}
               disabled={!path}
               onClick={() => setPath(path.split('/').slice(0, -1).join('/'))}
-              aria-label="Back to parent folder"
+              aria-label={gt('Back to parent folder')}
             >
-              <ArrowLeft size={16} aria-hidden="true" /> Back
+              <ArrowLeft size={16} aria-hidden="true" />
+              <T>Back</T>
             </Button>
             <h2 className={styles.path} aria-live="polite">
               /{props.name}/{path}{path && source === undefined && '/'}
             </h2>
           </header>
           {source === undefined && (
-            <ul className={styles.list} aria-label="Files and folders">
+            <ul className={styles.list} aria-label={gt('Files and folders')}>
               {entries.map(entry => (
                 <li key={entry.path}>
                   <Button className={styles.entry} onClick={() => setPath(entry.path)}>
@@ -110,9 +113,9 @@ export default function PackageCode(props: PackageCodeProps) {
               ))}
             </ul>
           )}
-          {source === '' && <p className={styles.empty}>This file is empty.</p>}
+          {source === '' && <p className={styles.empty}><T>This file is empty.</T></p>}
           {source !== undefined && source !== '' && (
-            <div className={styles.source} tabIndex={0} aria-label={`${path} contents`}>
+            <div className={styles.source} tabIndex={0} aria-label={gt('{path} contents', { path })}>
               <pre className={styles.lineNumbers} aria-hidden="true">
                 {lines.map((_, index) => index + 1).join('\n')}
               </pre>

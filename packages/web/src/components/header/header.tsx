@@ -1,6 +1,7 @@
 import { Show, SignInButton, SignUpButton } from '@clerk/react';
 import { Button } from '@base-ui/react/button';
 import { Input } from '@base-ui/react/input';
+import { T, useGT } from 'gt-react';
 import { Search } from 'lucide-preact';
 import { route } from 'preact-router';
 import Logo from '../logo/logo';
@@ -12,9 +13,11 @@ interface HeaderProps {
 }
 
 export default function Header(props: HeaderProps) {
+  const gt = useGT();
+
   return (
     <header className={styles.header}>
-      <a href="/" className={styles.homeLink} aria-label="Claw home">
+      <a href="/" className={styles.homeLink} aria-label={gt('Claw home')}>
         <Logo />
       </a>
       <form
@@ -28,7 +31,7 @@ export default function Header(props: HeaderProps) {
           route(`/search?${params}`);
         }}
       >
-        <Button type="submit" className={styles.searchButton} aria-label="Search">
+        <Button type="submit" className={styles.searchButton} aria-label={gt('Search')}>
           <Search size={20} strokeWidth={1.8} aria-hidden="true" />
         </Button>
         <Input
@@ -36,18 +39,18 @@ export default function Header(props: HeaderProps) {
           name="q"
           defaultValue={props.query || ''}
           maxLength={64}
-          aria-label="Search packages"
-          placeholder="Search packages"
+          aria-label={gt('Search packages')}
+          placeholder={gt('Search packages')}
           className={styles.searchInput}
         />
       </form>
-      <nav aria-label="Account" className={styles.account}>
+      <nav aria-label={gt('Account')} className={styles.account}>
         <Show when="signed-out">
           <SignInButton mode="modal">
-            <Button className={styles.signIn}>Sign in</Button>
+            <Button className={styles.signIn}><T>Sign in</T></Button>
           </SignInButton>
           <SignUpButton mode="modal">
-            <Button className={styles.signUp}>Sign up</Button>
+            <Button className={styles.signUp}><T>Sign up</T></Button>
           </SignUpButton>
         </Show>
         <Show when="signed-in">

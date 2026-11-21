@@ -1,10 +1,12 @@
 import { useClerk, useUser } from '@clerk/react';
 import { Avatar } from '@base-ui/react/avatar';
 import { Menu } from '@base-ui/react/menu';
+import { T, useGT } from 'gt-react';
 import { ChevronDown, LogOut, Settings } from 'lucide-preact';
 import * as styles from './profile-menu.css';
 
 export default function ProfileMenu() {
+  const gt = useGT();
   const { user } = useUser();
   const { openUserProfile, signOut } = useClerk();
 
@@ -12,11 +14,11 @@ export default function ProfileMenu() {
     return null;
   }
 
-  const name = user.fullName || user.username || 'Account';
+  const name = user.fullName || user.username || gt('Account');
 
   return (
     <Menu.Root modal={false}>
-      <Menu.Trigger className={styles.trigger} aria-label="Account menu">
+      <Menu.Trigger className={styles.trigger} aria-label={gt('Account menu')}>
         <Avatar.Root className={styles.avatar} aria-hidden="true">
           <Avatar.Image className={styles.avatarImage} src={user.imageUrl} />
           <Avatar.Fallback>{name.slice(0, 1).toUpperCase()}</Avatar.Fallback>
@@ -42,14 +44,14 @@ export default function ProfileMenu() {
               onClick={() => openUserProfile()}
             >
               <Settings size={16} aria-hidden="true" />
-              Account settings
+              <T>Account settings</T>
             </Menu.Item>
             <Menu.Item
               className={styles.item}
               onClick={() => signOut({ redirectUrl: '/' })}
             >
               <LogOut size={16} aria-hidden="true" />
-              Sign out
+              <T>Sign out</T>
             </Menu.Item>
           </Menu.Popup>
         </Menu.Positioner>

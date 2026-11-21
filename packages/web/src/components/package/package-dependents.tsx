@@ -1,5 +1,6 @@
 import { Button } from '@base-ui/react/button';
 import { useQuery } from '@tanstack/react-query';
+import { Num, T, useGT } from 'gt-react';
 import { useState } from 'preact/hooks';
 import { env } from '../../config';
 import type { PackageDependentsResponse } from 'shared';
@@ -12,6 +13,7 @@ interface PackageDependentsProps {
 const pageSize = 20;
 
 export default function PackageDependents(props: PackageDependentsProps) {
+  const gt = useGT();
   const [page, setPage] = useState(1);
   const { data, isPending, isError, refetch } = useQuery({
     queryKey: ['package-dependents', props.name, page],
@@ -35,16 +37,16 @@ export default function PackageDependents(props: PackageDependentsProps) {
 
   return (
     <section>
-      <h2 className={styles.subheading}>Dependents</h2>
-      {isPending && <p className={styles.message} role="status">Loading dependents…</p>}
+      <h2 className={styles.subheading}><T>Dependents</T></h2>
+      {isPending && <p className={styles.message} role="status"><T>Loading dependents…</T></p>}
       {isError && (
         <div className={styles.message} role="alert">
-          <p>Could not load dependents.</p>
-          <Button className={styles.button} onClick={() => refetch()}>Try again</Button>
+          <p><T>Could not load dependents.</T></p>
+          <Button className={styles.button} onClick={() => refetch()}><T>Try again</T></Button>
         </div>
       )}
       {data && data.total === 0 && (
-        <p className={styles.message}>No packages depend on this package yet.</p>
+        <p className={styles.message}><T>No packages depend on this package yet.</T></p>
       )}
       {data && (
         <ul className={styles.list}>
@@ -58,21 +60,21 @@ export default function PackageDependents(props: PackageDependentsProps) {
         </ul>
       )}
       {data && data.total > pageSize && (
-        <nav className={styles.pagination} aria-label="Dependent packages pages">
+        <nav className={styles.pagination} aria-label={gt('Dependent packages pages')}>
           <Button
             className={styles.button}
             disabled={page === 1}
             onClick={() => setPage(page - 1)}
           >
-            Previous
+            <T>Previous</T>
           </Button>
-          <span>Page {page}</span>
+          <span><T>Page <Num>{page}</Num></T></span>
           <Button
             className={styles.button}
             disabled={page * pageSize >= data.total || page >= 501}
             onClick={() => setPage(page + 1)}
           >
-            Next
+            <T>Next</T>
           </Button>
         </nav>
       )}

@@ -1,5 +1,6 @@
 import { Button } from '@base-ui/react/button';
 import { Avatar } from '@base-ui/react/avatar';
+import { Num, T, useGT, useLocale } from 'gt-react';
 import { Check, Copy, Download, GitFork, Link, Terminal } from 'lucide-preact';
 import { useMemo, useState } from 'preact/hooks';
 import { Sparklines, SparklinesLine } from 'react-sparklines';
@@ -12,8 +13,10 @@ interface PackageSidebarProps {
 }
 
 export default function PackageSidebar(props: PackageSidebarProps) {
+  const gt = useGT();
+  const locale = useLocale();
   const pkg = props.pkg;
-  const [copyStatus, setCopyStatus] = useState('');
+  const [copied, setCopied] = useState<boolean | null>(null);
   const command = `claw install ${pkg.name}`;
   const downloads = useMemo(
     () => pkg.downloads.daily.map(day => day.downloads),
@@ -22,30 +25,35 @@ export default function PackageSidebar(props: PackageSidebarProps) {
   const copyCommand = async () => {
     try {
       await navigator.clipboard.writeText(command);
-      setCopyStatus('Copied to clipboard');
+      setCopied(true);
     } catch {
-      setCopyStatus('Could not copy. Select the command to copy it.');
+      setCopied(false);
     }
   };
 
   return (
-    <aside className={styles.sidebar} aria-label="Package details">
+    <aside className={styles.sidebar} aria-label={gt('Package details')}>
       <section className={styles.install}>
-        <h2 className={styles.label}>Install</h2>
+        <h2 className={styles.label}><T>Install</T></h2>
         <div className={styles.command}>
           <Terminal size={16} aria-hidden="true" />
           <code className={styles.commandText}>{command}</code>
-          <Button className={styles.copy} aria-label="Copy install command" onClick={copyCommand}>
-            {copyStatus === 'Copied to clipboard' && <Check size={16} aria-hidden="true" />}
-            {copyStatus !== 'Copied to clipboard' && <Copy size={16} aria-hidden="true" />}
+          <Button className={styles.copy} aria-label={gt('Copy install command')} onClick={copyCommand}>
+            {copied ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}
           </Button>
         </div>
-        {copyStatus && <p className={styles.copyStatus} role="status">{copyStatus}</p>}
+        {copied !== null && (
+          <p className={styles.copyStatus} role="status">
+            {copied ? (
+              <T>Copied to clipboard</T>
+            ) : <T>Could not copy. Select the command to copy it.</T>}
+          </p>
+        )}
       </section>
 
       {pkg.repository && (
         <section className={styles.section}>
-          <h2 className={styles.label}>Repository</h2>
+          <h2 className={styles.label}><T>Repository</T></h2>
           <a className={styles.link} href={pkg.repository}>
             <GitFork size={17} aria-hidden="true" />
             {pkg.repository.replace(/^https?:\/\//, '')}
@@ -54,7 +62,7 @@ export default function PackageSidebar(props: PackageSidebarProps) {
       )}
       {pkg.homepage && (
         <section className={styles.section}>
-          <h2 className={styles.label}>Homepage</h2>
+          <h2 className={styles.label}><T>Homepage</T></h2>
           <a className={styles.link} href={pkg.homepage}>
             <Link size={17} aria-hidden="true" />
             {pkg.homepage.replace(/^https?:\/\//, '')}
@@ -64,16 +72,19 @@ export default function PackageSidebar(props: PackageSidebarProps) {
 
       <section className={styles.section}>
         <h2 className={styles.label}>
-          <Download size={14} aria-hidden="true" /> Weekly downloads
+          <Download size={14} aria-hidden="true" />
+          <T>Weekly downloads</T>
         </h2>
         <div className={styles.downloads}>
-          <strong className={styles.total}>{pkg.downloads.total.toLocaleString()}</strong>
+          <strong className={styles.total}><Num>{pkg.downloads.total}</Num></strong>
           <div
             className={styles.chart}
             role="img"
-            aria-label={`Daily downloads: ${pkg.downloads.daily.map(
-              day => `${day.date}: ${day.downloads.toLocaleString()}`
-            ).join(', ')}`}
+            aria-label={gt('Daily downloads: {days}', {
+              days: pkg.downloads.daily.map(
+                day => `${day.date}: ${day.downloads.toLocaleString(locale)}`
+              ).join(', ')
+            })}
           >
             <Sparklines data={downloads} width={180} height={44} min={0}>
               <SparklinesLine color={theme.brand.primary} style={{ strokeWidth: 2 }} />
@@ -89,18 +100,18 @@ export default function PackageSidebar(props: PackageSidebarProps) {
 
       <dl className={styles.facts}>
         <div>
-          <dt className={styles.label}>Version</dt>
+          <dt className={styles.label}><T>Version</T></dt>
           <dd className={styles.value}>{pkg.version}</dd>
         </div>
         <div>
-          <dt className={styles.label}>License</dt>
-          <dd className={styles.value}>{pkg.license || 'Not specified'}</dd>
+          <dt className={styles.label}><T>License</T></dt>
+          <dd className={styles.value}>{pkg.license || <T>Not specified</T>}</dd>
         </div>
         <div className={styles.lastPublish}>
-          <dt className={styles.label}>Last publish</dt>
+          <dt className={styles.label}><T>Last publish</T></dt>
           <dd className={styles.value}>
             <time dateTime={pkg.lastPublishedAt}>
-              {new Date(pkg.lastPublishedAt).toLocaleDateString()}
+              {new Date(pkg.lastPublishedAt).toLocaleDateString(locale)}
             </time>
           </dd>
         </div>
@@ -108,7 +119,7 @@ export default function PackageSidebar(props: PackageSidebarProps) {
 
       {pkg.collaborators.length > 0 && (
         <section className={styles.section}>
-          <h2 className={styles.label}>Collaborators</h2>
+          <h2 className={styles.label}><T>Collaborators</T></h2>
           <ul className={styles.collaborators}>
             {pkg.collaborators.map(user => (
               <li className={styles.collaborator} key={user.id}>
@@ -118,7 +129,7 @@ export default function PackageSidebar(props: PackageSidebarProps) {
                     {(user.username || user.fullName || '?').slice(0, 1).toUpperCase()}
                   </Avatar.Fallback>
                 </Avatar.Root>
-                {user.username || user.fullName || 'Package owner'}
+                {user.username || user.fullName || <T>Package owner</T>}
               </li>
             ))}
           </ul>

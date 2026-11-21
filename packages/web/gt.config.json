@@ -1,0 +1,14 @@
+{
+  "defaultLocale": "en",
+  "locales": [
+    "es",
+    "en",
+    "fr",
+    "de",
+    "pt-BR",
+    "ja",
+    "zh-CN"
+  ],
+  "framework": "vite",
+  "publish": true
+}

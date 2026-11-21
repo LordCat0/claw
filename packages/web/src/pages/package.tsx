@@ -1,6 +1,7 @@
 import { Button } from '@base-ui/react/button';
 import { Tabs } from '@base-ui/react/tabs';
 import { useQuery } from '@tanstack/react-query';
+import { Num, Plural, T, useGT, useLocale, Var } from 'gt-react';
 import { BookOpen, Boxes, Code, Package as PackageIcon, Tags } from 'lucide-preact';
 import Header from '../components/header/header';
 import PackageCode from '../components/package/package-code';
@@ -16,6 +17,8 @@ interface PackageProps {
 }
 
 export default function Package(props: PackageProps) {
+  const gt = useGT();
+  const locale = useLocale();
   const name = props.name || '';
   const { data: pkg, isPending, isError, refetch } = useQuery({
     queryKey: ['package', name],
@@ -42,21 +45,23 @@ export default function Package(props: PackageProps) {
       <Header query="" />
       <main className={styles.main}>
         {isPending && (
-          <p className={styles.message} role="status">Loading package…</p>
+          <p className={styles.message} role="status"><T>Loading package…</T></p>
         )}
         {isError && (
           <div className={styles.message} role="alert">
-            <p>Could not load this package. Please try again.</p>
+            <p><T>Could not load this package. Please try again.</T></p>
             <Button className={styles.button} onClick={() => refetch()}>
-              Try again
+              <T>Try again</T>
             </Button>
           </div>
         )}
         {pkg === null && (
           <div>
-            <h1 className={styles.heading}>Package not found</h1>
-            <p className={styles.message}>This package could not be found.</p>
-            <a className={styles.link} href="/search">Browse packages</a>
+            <T>
+              <h1 className={styles.heading}>Package not found</h1>
+              <p className={styles.message}>This package could not be found.</p>
+              <a className={styles.link} href="/search">Browse packages</a>
+            </T>
           </div>
         )}
         {pkg && (
@@ -68,12 +73,18 @@ export default function Package(props: PackageProps) {
               </h1>
               <div className={styles.metadata}>
                 <span className={styles.monospace}>{pkg.version}</span>
-                <span className={styles.visibility}>{pkg.visibility}</span>
+                <span className={styles.visibility}>
+                  {pkg.visibility === 'public' ? <T>public</T> : pkg.visibility}
+                </span>
                 <span>
-                  Published{' '}
-                  <time dateTime={pkg.publishedAt}>
-                    {new Date(pkg.publishedAt).toLocaleDateString()}
-                  </time>
+                  <T>
+                    Published{' '}
+                    <Var>
+                      <time dateTime={pkg.publishedAt}>
+                        {new Date(pkg.publishedAt).toLocaleDateString(locale)}
+                      </time>
+                    </Var>
+                  </T>
                 </span>
               </div>
               {pkg.description && (
@@ -82,24 +93,35 @@ export default function Package(props: PackageProps) {
             </header>
 
             <Tabs.Root key={name} defaultValue="readme">
-              <Tabs.List className={styles.tabs} aria-label="Package information">
+              <Tabs.List className={styles.tabs} aria-label={gt('Package information')}>
                 <Tabs.Tab className={styles.tab} value="readme">
-                  <BookOpen size={17} aria-hidden="true" /> Readme
+                  <BookOpen size={17} aria-hidden="true" />
+                  <T>Readme</T>
                 </Tabs.Tab>
                 <Tabs.Tab className={styles.tab} value="code">
-                  <Code size={17} aria-hidden="true" /> Code
+                  <Code size={17} aria-hidden="true" />
+                  <T>Code</T>
                 </Tabs.Tab>
                 <Tabs.Tab className={styles.tab} value="dependencies">
                   <PackageIcon size={17} aria-hidden="true" />
-                  {pkg.dependencyCount.toLocaleString()} Dependencies
+                  <T>
+                    <Num>{pkg.dependencyCount}</Num>{' '}
+                    <Plural n={pkg.dependencyCount} one="Dependency">Dependencies</Plural>
+                  </T>
                 </Tabs.Tab>
                 <Tabs.Tab className={styles.tab} value="dependents">
                   <Boxes size={17} aria-hidden="true" />
-                  {pkg.dependentCount.toLocaleString()} Dependents
+                  <T>
+                    <Num>{pkg.dependentCount}</Num>{' '}
+                    <Plural n={pkg.dependentCount} one="Dependent">Dependents</Plural>
+                  </T>
                 </Tabs.Tab>
                 <Tabs.Tab className={styles.tab} value="versions">
                   <Tags size={17} aria-hidden="true" />
-                  {pkg.versionCount.toLocaleString()} Versions
+                  <T>
+                    <Num>{pkg.versionCount}</Num>{' '}
+                    <Plural n={pkg.versionCount} one="Version">Versions</Plural>
+                  </T>
                 </Tabs.Tab>
               </Tabs.List>
 
@@ -108,8 +130,8 @@ export default function Package(props: PackageProps) {
                   <Tabs.Panel value="readme">
                     <PackageReadme readme={pkg.readme} />
                     {pkg.keywords.length > 0 && (
-                      <section className={styles.keywords} aria-label="Keywords">
-                        <h2 className={styles.subheading}>Keywords</h2>
+                      <section className={styles.keywords} aria-label={gt('Keywords')}>
+                        <h2 className={styles.subheading}><T>Keywords</T></h2>
                         <div className={styles.keywordList}>
                           {pkg.keywords.map(keyword => (
                             <a
@@ -132,9 +154,9 @@ export default function Package(props: PackageProps) {
                     />
                   </Tabs.Panel>
                   <Tabs.Panel value="dependencies">
-                    <h2 className={styles.subheading}>Dependencies</h2>
+                    <h2 className={styles.subheading}><T>Dependencies</T></h2>
                     {pkg.dependencyCount === 0 && (
-                      <p className={styles.message}>This package has no dependencies.</p>
+                      <p className={styles.message}><T>This package has no dependencies.</T></p>
                     )}
                     <ul className={styles.list}>
                       {Object.entries(pkg.dependencies).map(([dependency, version]) => (
@@ -151,18 +173,18 @@ export default function Package(props: PackageProps) {
                     <PackageDependents name={pkg.name} />
                   </Tabs.Panel>
                   <Tabs.Panel value="versions">
-                    <h2 className={styles.subheading}>Version history</h2>
+                    <h2 className={styles.subheading}><T>Version history</T></h2>
                     <ul className={styles.list}>
                       {pkg.releases.map(release => (
                         <li className={styles.row} key={release.version}>
                           <div className={styles.release}>
                             <code>{release.version}</code>
                             {release.version === pkg.latest && (
-                              <span className={styles.badge}>latest</span>
+                              <span className={styles.badge}><T>latest</T></span>
                             )}
                           </div>
                           <time className={styles.message} dateTime={release.publishedAt}>
-                            {new Date(release.publishedAt).toLocaleDateString()}
+                            {new Date(release.publishedAt).toLocaleDateString(locale)}
                           </time>
                         </li>
                       ))}

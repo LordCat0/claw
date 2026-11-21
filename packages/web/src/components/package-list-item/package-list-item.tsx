@@ -1,3 +1,4 @@
+import { Num, Plural, T, useLocale, Var } from 'gt-react';
 import { Clock3, Package, Tag } from 'lucide-preact';
 import type { SearchPackage } from 'shared';
 import * as styles from './package-list-item.css';
@@ -7,6 +8,7 @@ interface PackageListItemProps {
 };
 
 export default function PackageListItem(props: PackageListItemProps) {
+  const locale = useLocale();
   const pkg = props.pkg;
 
   return (
@@ -24,14 +26,21 @@ export default function PackageListItem(props: PackageListItemProps) {
         </span>
         <span className={styles.detail}>
           <Clock3 size={15} aria-hidden="true" />
-          Published
-          <time dateTime={pkg.publishedAt}>
-            {new Date(pkg.publishedAt).toLocaleDateString()}
-          </time>
+          <T>
+            Published{' '}
+            <Var>
+              <time dateTime={pkg.publishedAt}>
+                {new Date(pkg.publishedAt).toLocaleDateString(locale)}
+              </time>
+            </Var>
+          </T>
         </span>
         <span className={styles.detail}>
           <Package size={15} aria-hidden="true" />
-          {pkg.versions} {pkg.versions === 1 ? 'version' : 'versions'}
+          <T>
+            <Num>{pkg.versions}</Num>{' '}
+            <Plural n={pkg.versions} one="version">versions</Plural>
+          </T>
         </span>
       </div>
     </li>
