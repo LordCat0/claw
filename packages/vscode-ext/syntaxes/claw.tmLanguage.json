@@ -13,13 +13,13 @@
       }
     },
     {
-      "match": "\\b(var)\\s+([a-zA-Z_]\\w*)",
+      "match": "\\b(var|list)\\s+([a-zA-Z_]\\w*)",
       "captures": {
         "1": { "name": "storage.type.js" },
         "2": { "name": "meta.definition.variable.js variable.other.readwrite.js" }
       }
     },
-    { "match": "\\b(?:const|var)\\b", "name": "storage.type.js" },
+    { "match": "\\b(?:const|var|list)\\b", "name": "storage.type.js" },
     { "match": "\\bfunction\\b", "name": "storage.type.function.js" },
     { "match": "\\b(?:if|else)\\b", "name": "keyword.control.conditional.js" },
     { "match": "\\b(?:while|for|repeat)\\b", "name": "keyword.control.loop.js" },

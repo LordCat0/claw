@@ -12,7 +12,7 @@
     "directory": "packages/vscode-ext"
   },
   "engines": {
-    "vscode": "^1.96.0"
+    "vscode": "^1.146.0"
   },
   "categories": ["Programming Languages"],
   "main": "./dist/extension.cjs",

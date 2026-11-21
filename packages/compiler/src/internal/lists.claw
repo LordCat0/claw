@@ -1,0 +1,182 @@
+function* listAt(input) {
+  var index = integer(input);
+  if (index < 0) {
+    index += lists.length(source);
+  }
+  return lists.item(source, index + 1);
+}
+
+function* listSet(input, value) {
+  var index = integer(input);
+  var count = lists.length(source);
+  if (index < 0 || index > count) {
+    fail("List assignment is out of bounds.");
+  }
+  if (index == count) {
+    if (count == 200000) {
+      fail("List length exceeds the Scratch limit.");
+    }
+    lists.add(source, value);
+  } else {
+    lists.replace(source, index + 1, value);
+  }
+}
+
+function* listResize(input) {
+  var count = integer(input);
+  if (count < 0) {
+    fail("List length cannot be negative.");
+  }
+  var length = lists.length(source);
+  repeat (length - count) {
+    lists.delete(source, "last");
+  }
+  repeat (count - length) {
+    lists.add(source, "");
+  }
+}
+
+function* listAppend(startInput, endInput) {
+  var index = bound(startInput, lists.length(source)) + 1;
+  var end = bound(endInput, lists.length(source)) + 1;
+  if (lists.length(target) + end - index > 200000) {
+    fail("List length exceeds the Scratch limit.");
+  }
+  repeat (end - index) {
+    lists.add(target, lists.item(source, index));
+    index++;
+  }
+}
+
+function* listDeleteCount(start, inputCount) {
+  var count = integer(inputCount);
+  var remaining = lists.length(source) - start;
+  if (count > remaining) {
+    return remaining;
+  }
+  return count;
+}
+
+function* listDelete(start, count) {
+  if (count <= 0) {
+    return;
+  }
+  if (count == 1) {
+    lists.delete(source, start + 1);
+    return;
+  }
+  var index = start + 1;
+  var length = lists.length(source);
+  while (index + count <= length) {
+    lists.replace(source, index, lists.item(source, index + count));
+    index++;
+  }
+  repeat (count) {
+    lists.delete(source, "last");
+  }
+}
+
+function* listTake(start, count) {
+  var index = start + 1;
+  repeat (count) {
+    lists.add(target, lists.item(source, index));
+    index++;
+  }
+}
+
+function* listReverse() {
+  var left = 1;
+  var right = lists.length(source);
+  while (left < right) {
+    var value = lists.item(source, left);
+    lists.replace(source, left, lists.item(source, right));
+    lists.replace(source, right, value);
+    left++;
+    right--;
+  }
+}
+
+function* listFill(value, startInput, endInput) {
+  var index = bound(startInput, lists.length(source)) + 1;
+  var end = bound(endInput, lists.length(source)) + 1;
+  repeat (end - index) {
+    lists.replace(source, index, value);
+    index++;
+  }
+}
+
+function* listIndexOf(value, startInput) {
+  var index = bound(startInput, lists.length(source)) + 1;
+  var end = lists.length(source) + 1;
+  while (index < end) {
+    if (lists.item(source, index) == value) {
+      return index - 1;
+    }
+    index++;
+  }
+  return -1;
+}
+
+function* listLastIndexOf(value, startInput) {
+  var index = integer(startInput);
+  var count = lists.length(source);
+  if (index < 0) {
+    index += count;
+  }
+  if (index >= count) {
+    index = count - 1;
+  }
+  while (index >= 0) {
+    if (lists.item(source, index + 1) == value) {
+      return index;
+    }
+    index--;
+  }
+  return -1;
+}
+
+function* listJoin(separator) {
+  var result = lists.item(source, 1);
+  var index = 2;
+  repeat (lists.length(source) - 1) {
+    result = compiler.join(compiler.join(result, separator), lists.item(source, index));
+    index++;
+  }
+  return result;
+}
+
+function* listSort() {
+  var length = lists.length(source);
+  var width = 1;
+  while (width < length) {
+    lists.clear(target);
+    var start = 1;
+    while (start <= length) {
+      var middle = start + width;
+      var end = start + width * 2;
+      if (end > length + 1) {
+        end = length + 1;
+      }
+      var left = start;
+      var right = middle;
+      repeat (end - start) {
+        if (right >= end || left < middle &&
+            !(lists.item(source, right) < lists.item(source, left))) {
+          lists.add(target, lists.item(source, left));
+          left++;
+        } else {
+          lists.add(target, lists.item(source, right));
+          right++;
+        }
+      }
+      start = end;
+    }
+    var index = 1;
+    repeat (length) {
+      lists.replace(source, index, lists.item(target, index));
+      index++;
+    }
+    width *= 2;
+  }
+  lists.clear(target);
+}

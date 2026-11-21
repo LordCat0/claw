@@ -44,7 +44,7 @@ function describeBindings (bindings: Bindings, origin: string): Symbols {
   return Object.fromEntries(Object.entries(bindings).map(([name, binding]) => {
     const symbol: Symbol = {
       name,
-      kind: binding.kind,
+      kind: binding.kind === 'list' ? 'variable' : binding.kind,
       origin
     };
     if (binding.kind === 'object') {
@@ -240,12 +240,12 @@ export class Analysis {
         const { first } = this.syntax.spans.get(node);
         const token = this.syntax.tokens[first + (node.constant ? 2 : 1)];
         const value = node.init && this.visitExpression(node.init, scope, 'binding');
-        if (value?.kind === 'function' || value?.kind === 'object' || value?.kind === 'import') {
+        if (!node.list && (value?.kind === 'function' || value?.kind === 'object' || value?.kind === 'import')) {
           this.define(scope, token, value);
         } else {
           this.define(scope, token, {
             kind: node.constant ? 'constant' : 'variable',
-            members: node.init?.type === NodeType.ArrayExpression ? arrayMembers : value?.members
+            members: node.list || node.init?.type === NodeType.ArrayExpression ? arrayMembers : value?.members
           });
         }
         return false;
@@ -548,7 +548,8 @@ export class Analysis {
 
     const literal = argument.type === NodeType.StringLiteral ||
       argument.type === NodeType.NumberLiteral || argument.type === NodeType.BooleanLiteral;
-    if (typeof kind === 'string' && (kind !== 'broadcast' || callee.blockType === 'hat') && !literal) {
+    const listName = kind === 'list' && argument.type === NodeType.Identifier;
+    if (typeof kind === 'string' && (kind !== 'broadcast' || callee.blockType === 'hat') && !literal && !listName) {
       this.report('Block dropdowns and data names require a literal value.', this.syntax.expressions.get(argument));
     } else if (kind === 'variable' && literal) {
       const name = String(argument.value);

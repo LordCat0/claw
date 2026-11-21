@@ -86,6 +86,7 @@ class ASTBuilder {
       switch (token.value) {
         case Keyword.const:
         case Keyword.var:
+        case Keyword.list:
           return this.parseVarDeclaration();
         case Keyword.if:
           return this.parseIf();
@@ -162,7 +163,8 @@ class ASTBuilder {
     if (constant) {
       this.advance();
     }
-    this.expect(TokenType.KEYWORD, Keyword.var);
+    const list = this.current().value === Keyword.list;
+    this.expect(TokenType.KEYWORD, list ? Keyword.list : Keyword.var);
     const name = this.expect(TokenType.IDENTIFIER).value as string;
     let init = null;
     if (this.current().type === TokenType.EQUALS) {
@@ -174,6 +176,7 @@ class ASTBuilder {
       type: NodeType.VarDeclaration,
       name,
       constant,
+      list,
       init
     };
   }

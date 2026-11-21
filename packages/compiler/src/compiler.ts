@@ -11,14 +11,14 @@ import {
 import uid from './util/uid.ts';
 import Scope from './util/scope.ts';
 import CallFrame from './util/call-frame.ts';
-import {
+import arrayBuiltins, {
   arrayMethod,
-  arrayMethods,
   internals,
   referenceVariables,
   arrayResults,
   numericFunctions
 } from './blocks/categories/arrays.ts';
+import ListOperations from './blocks/categories/lists.ts';
 import control from './blocks/categories/control.ts';
 import data from './blocks/categories/data.ts';
 import listVariable from './util/list-variable.ts';
@@ -54,6 +54,9 @@ import {
   type WhileStatement,
   type RepeatStatement,
   type ForStatement,
+  type IndexExpression,
+  type ListBinding,
+  type MemberExpression,
   type VariableBinding,
   type Program
 } from './types.ts';
@@ -98,6 +101,7 @@ class Compiler {
   private _lists: Record<string, [string, string]>;
   private _rootCount: number;
   private _frameSizes: number[];
+  private _listOperations: ListOperations;
 
   constructor () {
     this.targets = [];
@@ -155,6 +159,7 @@ class Compiler {
     this._lists = {};
     this._rootCount = 0;
     this._frameSizes = [];
+    this._listOperations = new ListOperations(this);
     this.readyBroadcast = uid();
     this.stage.broadcasts[this.readyBroadcast] = `$ready@${this.readyBroadcast}`;
     this._currentFile = null;
@@ -817,6 +822,15 @@ class Compiler {
         continue;
       }
 
+      if (argument === 'list' && expression.type === NodeType.Identifier) {
+        const list = scope.resolve(expression.name);
+
+        if (list?.kind === 'list') {
+          args.fields[i] = list.field;
+          continue;
+        }
+      }
+
       if (!literal) {
         throw new Error('Block dropdowns and data names require a literal value.');
       }
@@ -1239,17 +1253,40 @@ class Compiler {
         return array;
       }
       case NodeType.IndexExpression: {
-        const array = this.capture(await this.parseExpression(expression.object, scope, true), scope);
-        const index = await this.parseExpression(expression.index, scope, true);
-        return this.builtin('get', [array, index], scope);
+        const { read } = await this.parseArrayTarget(expression, scope);
+        return read();
       }
       case NodeType.CallExpression: {
         const binding = await this.resolveBinding(expression.callee, scope);
 
+        if (binding === arrayBuiltins.arrays.members.isArray && expression.arguments.length === 1 &&
+            await this._listOperations.resolve(expression.arguments[0], scope)) {
+          return this.booleanLiteral(true);
+        }
+
         if (!binding || binding.kind !== 'function') {
-          if (this.arrays && expression.callee.type === NodeType.MemberExpression) {
-            return arrayMethod(this, expression.callee.object, expression.callee.property,
-              expression.arguments, scope, asValue);
+          if (expression.callee.type === NodeType.MemberExpression) {
+            const { object, property } = expression.callee;
+            const list = await this._listOperations.resolve(object, scope);
+
+            if (list) {
+              const result = await this._listOperations.call(
+                list, property, expression.arguments, scope, asValue
+              );
+
+              if (typeof result === 'string' || Array.isArray(result)) {
+                return result;
+              }
+
+              if (result) {
+                throw new Error('Use a list declaration to store a list result.');
+              }
+              return null;
+            }
+
+            if (this.arrays) {
+              return arrayMethod(this, object, property, expression.arguments, scope, asValue);
+            }
           }
 
           throw new Error('Expected a function.');
@@ -1281,10 +1318,9 @@ class Compiler {
         const binding = await this.resolveBinding(expression, scope);
 
         if (!binding || binding.kind !== 'variable') {
-          if (this.arrays && expression.type === NodeType.MemberExpression &&
-              expression.property === 'length') {
-            const array = await this.parseExpression(expression.object, scope, true);
-            return this.builtin('length', [array], scope);
+          if (expression.type === NodeType.MemberExpression && expression.property === 'length') {
+            const { read } = await this.parseArrayTarget(expression, scope);
+            return read();
           }
 
           throw new Error('Expected a variable.');
@@ -1297,23 +1333,18 @@ class Compiler {
             (expression.argument.type === NodeType.MemberExpression &&
               expression.argument.property === 'length' &&
               !(await this.resolveBinding(expression.argument, scope)))) {
-          const target = expression.argument;
-          const array = this.capture(await this.parseExpression(target.object, scope, true), scope);
-          const index = target.type === NodeType.IndexExpression
-            ? this.capture(await this.parseExpression(target.index, scope, true), scope)
-            : null;
-          const old = await this.builtin(index ? 'get' : 'length',
-            index ? [array, index] : [array], scope);
+          const { read, write } = await this.parseArrayTarget(expression.argument, scope, true);
+          const old = await read();
+          const previous = asValue ? this.capture(old, scope) : old;
           const value: ScratchInput = [2, this.insertBlock({
             opcode: expression.operator === '++' ? 'operator_add' : 'operator_subtract',
             inputs: {
-              NUM1: old,
+              NUM1: previous,
               NUM2: [1, [4, 1]]
             }
           })];
-          await this.builtin(index ? 'set' : 'resize',
-            index ? [array, index, value] : [array, value], scope, false);
-          return asValue ? old : scope.lastBlock;
+          await write(value);
+          return asValue ? previous : scope.lastBlock;
         }
 
         const binding = await this.resolveBinding(expression.argument, scope);
@@ -1658,6 +1689,40 @@ class Compiler {
     return loop;
   }
 
+  private async parseArrayTarget (target: IndexExpression | MemberExpression, scope: Scope, updating = false) {
+    const list = await this._listOperations.resolve(target.object, scope);
+
+    if (!list && !this.arrays) {
+      throw new Error('Expected a list or array.');
+    }
+
+    const array = list
+      ? null
+      : this.capture(await this.parseExpression(target.object, scope, true), scope);
+    let index = target.type === NodeType.IndexExpression
+      ? await this.parseExpression(target.index, scope, true)
+      : null;
+
+    if (index && updating) {
+      index = this.capture(index, scope);
+    }
+
+    if (list) {
+      return {
+        read: () => this._listOperations.get(list, index, scope),
+        write: (value: ScratchInput) =>
+          this._listOperations.set(list, index, value, scope)
+      };
+    }
+
+    const inputs = index ? [array, index] : [array];
+    return {
+      read: () => this.builtin(index ? 'get' : 'length', inputs, scope),
+      write: (value: ScratchInput) =>
+        this.builtin(index ? 'set' : 'resize', [...inputs, value], scope, false)
+    };
+  }
+
   async parseStatement (statement: Statement, scope: Scope): Promise<ScratchInput> {
     switch (statement.type) {
       case NodeType.Block: {
@@ -1676,20 +1741,11 @@ class Compiler {
           const target = statement.target;
 
           if (target.type === NodeType.MemberExpression && target.property !== 'length') {
-            throw new Error('Only array.length can be assigned.');
+            throw new Error('Only the length property of a list or array can be assigned.');
           }
 
-          const array = this.capture(await this.parseExpression(target.object, scope, true), scope);
-          const index = target.type === NodeType.IndexExpression
-            ? this.capture(await this.parseExpression(target.index, scope, true), scope)
-            : null;
-          let old: ScratchInput;
-
-          if (statement.operator) {
-            old = await this.builtin(index ? 'get' : 'length',
-              index ? [array, index] : [array], scope);
-          }
-
+          const { read, write } = await this.parseArrayTarget(target, scope, true);
+          const old = statement.operator ? this.capture(await read(), scope) : null;
           let value = await this.parseExpression(statement.value, scope, true);
 
           if (statement.operator) {
@@ -1701,11 +1757,19 @@ class Compiler {
             }, scope, [old, value]);
           }
 
-          return this.builtin(index ? 'set' : 'resize',
-            index ? [array, index, value] : [array, value], scope, false);
+          return write(value);
         }
 
         const binding = await this.resolveBinding(statement.target, scope);
+
+        if (binding?.kind === 'list') {
+          if (binding.constant || statement.operator) {
+            throw new Error('This list cannot be reassigned.');
+          }
+
+          await this._listOperations.assign(binding, statement.value, scope);
+          return scope.lastBlock;
+        }
 
         if (!binding || binding.kind !== 'variable' || !binding.set) {
           throw new Error('This variable cannot be set.');
@@ -1798,9 +1862,16 @@ class Compiler {
         return scope.lastBlock;
       }
       case NodeType.VarDeclaration: {
+        if (statement.list) {
+          const list = this._listOperations.create(statement.name, statement.constant);
+          await this._listOperations.assign(list, statement.init, scope, true);
+          scope.define(statement.name, list);
+          return scope.lastBlock;
+        }
+
         if (statement.init) {
           const binding = await this.resolveBinding(statement.init, scope);
-          if (binding && binding.kind !== 'variable') {
+          if (binding?.kind === 'function' || binding?.kind === 'object') {
             scope.define(statement.name, binding);
             return scope.lastBlock;
           }
@@ -2041,16 +2112,18 @@ class Compiler {
 
   async parseFunction (
     expression: FunctionDeclaration | FunctionExpression,
-    scope: Scope
+    scope: Scope,
+    list?: ListBinding
   ): Promise<FunctionBinding> {
-    const name = expression.type === NodeType.FunctionDeclaration
+    const name = !list && expression.type === NodeType.FunctionDeclaration
       ? expression.name
       : `function_${uid.shortUid()}`;
+    const params = list ? expression.params.slice(0, -1) : expression.params;
     let create: FunctionBinding['create'];
     const binding: FunctionBinding = {
       kind: 'function',
       blockType: 'command',
-      args: expression.params.map(() => 10),
+      args: params.map(() => 10),
       create: (args, compiler) => create(args, compiler),
       compile: async () => {
         const funcScope = scope.createChild(true);
@@ -2073,7 +2146,7 @@ class Compiler {
           this.root.variables[storage.id] = [storage.name, ''];
         }
 
-        const args = expression.params.map(parameter => `${parameter}@${funcScope.id}`);
+        const args = params.map(parameter => `${parameter}@${funcScope.id}`);
         const references = args.map((parameter, index) => {
           return this.arrays && binding.args[index] === 10 ? `${parameter}@reference` : null;
         });
@@ -2090,9 +2163,13 @@ class Compiler {
           opcode: 'argument_reporter_string_number',
           fields: { VALUE: [thread[0], null] }
         })] : null;
-        expression.params.forEach((parameter, i) => {
+        params.forEach((parameter, i) => {
           funcScope.defineParam(parameter, args[i], references[i]);
         });
+
+        if (list) {
+          funcScope.define(expression.params.at(-1), list);
+        }
 
         if (scope.internal && this.arrays) {
           funcScope.defineParam('thread', thread[0]);
@@ -2120,6 +2197,10 @@ class Compiler {
       }
     };
 
+    if (!list && !scope.internal && params.length === 3) {
+      binding.listCallback = list => this.parseFunction(expression, scope, list);
+    }
+
     if (scope.internal) {
       binding.scalar = !arrayResults.includes(name);
       binding.referenceVariables = referenceVariables[name] || [];
@@ -2141,7 +2222,7 @@ class Compiler {
       }
     }
 
-    if (expression.type === NodeType.FunctionDeclaration) {
+    if (!list && expression.type === NodeType.FunctionDeclaration) {
       scope.define(name, binding);
     }
 
@@ -2292,17 +2373,57 @@ class Compiler {
     }
   }
 
-  usesArrays (node: Program | Statement | Expression | Block): boolean {
-    if (node.type === NodeType.ArrayExpression || node.type === NodeType.IndexExpression ||
-        (node.type === NodeType.Identifier && node.name === 'arrays') ||
-        (node.type === NodeType.MemberExpression &&
-          (node.property === 'length' || Object.hasOwn(arrayMethods, node.property)) &&
-          (node.object.type !== NodeType.Identifier || !Object.hasOwn(globals, node.object.name)))) {
+  usesArrays (
+    node: Program | Statement | Expression | Block,
+    lists: Record<string, boolean>,
+    destinations: string[]
+  ): boolean {
+    if (node.type === NodeType.ArrayExpression) {
       return true;
     }
 
+    const usesArrays = (value: Program | Statement | Expression | Block) => {
+      return this.usesArrays(value, lists, destinations);
+    };
+
+    if (node.type === NodeType.VarDeclaration) {
+      lists[node.name] = node.list && lists[node.name] !== false;
+
+      if (node.list && node.init?.type === NodeType.ArrayExpression) {
+        return node.init.elements.some(usesArrays);
+      }
+    }
+
+    if (node.type === NodeType.FunctionDeclaration || node.type === NodeType.FunctionExpression) {
+      for (const name of node.params) {
+        lists[name] = false;
+      }
+    }
+
+    if (node.type === NodeType.TryStatement && node.parameter) {
+      lists[node.parameter] = false;
+    }
+
+    if (node.type === NodeType.Assignment && node.target.type === NodeType.Identifier &&
+        node.value.type === NodeType.ArrayExpression) {
+      destinations.push(node.target.name);
+      return node.value.elements.some(usesArrays);
+    }
+
+    if (node.type === NodeType.CallExpression && node.callee.type === NodeType.MemberExpression &&
+        node.callee.property === 'concat' && node.callee.object.type === NodeType.Identifier) {
+      const name = node.callee.object.name;
+      return node.arguments.some(argument => {
+        if (argument.type === NodeType.ArrayExpression) {
+          destinations.push(name);
+          return argument.elements.some(usesArrays);
+        }
+        return usesArrays(argument);
+      });
+    }
+
     return Object.values(node).flat().some(value => {
-      return value && typeof value === 'object' && this.usesArrays(value);
+      return value && typeof value === 'object' && usesArrays(value);
     });
   }
 
@@ -2382,7 +2503,11 @@ class Compiler {
     this.loadPrograms(path.resolve(filePath));
 
     const programs = Object.values(this._programs);
-    this.arrays = programs.some(program => this.usesArrays(program));
+    // A name shared with a scalar binding can still receive a dynamic array.
+    const lists: Record<string, boolean> = Object.create(null);
+    const destinations: string[] = [];
+    this.arrays = programs.some(program => this.usesArrays(program, lists, destinations)) ||
+      destinations.some(name => !lists[name]);
     this._usesThread = programs.some(program => this.usesThread(program));
     this._usesThrow = programs.some(program => this.usesThrow(program));
     this.builtins = await this.compileFile(

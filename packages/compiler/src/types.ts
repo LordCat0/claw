@@ -45,6 +45,7 @@ export enum Keyword {
   throw = 'throw',
   const = 'const',
   var = 'var',
+  list = 'list',
   true = 'true',
   false = 'false',
   import = 'import',
@@ -154,6 +155,7 @@ export interface VarDeclaration {
   type: NodeType.VarDeclaration;
   name: string;
   constant: boolean;
+  list: boolean;
   init: Expression | null;
 }
 
@@ -412,6 +414,7 @@ export interface FunctionBinding {
   kind: 'function';
   blockType: 'command' | 'reporter' | 'hat';
   compile?: () => Promise<void>;
+  listCallback?: (list: ListBinding) => Promise<FunctionBinding>;
   args: FunctionArgument[];
   create: (args: CallArguments, compiler: Compiler) => BlockOptions;
   reference?: (args: CallArguments, compiler: Compiler) => ScratchInput;
@@ -446,7 +449,13 @@ export interface ObjectBinding {
   members: Bindings;
 }
 
-export type Binding = VariableBinding | FunctionBinding | ObjectBinding;
+export interface ListBinding {
+  kind: 'list';
+  field: [string, string];
+  constant: boolean;
+}
+
+export type Binding = VariableBinding | FunctionBinding | ObjectBinding | ListBinding;
 export type Bindings = Record<string, Binding>;
 
 // Compiler output
