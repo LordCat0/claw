@@ -79,7 +79,6 @@ class EditorParser extends ASTBuilder {
   errors: Problem[] = [];
   spans = new WeakMap<Statement, { first: number; end: number; open?: boolean }>();
   expressions = new WeakMap<Expression, Range>();
-  parameters = new WeakMap<Block, SourceToken[]>();
 
   current () {
     return this.tokens[this.pos];
@@ -110,15 +109,6 @@ class EditorParser extends ASTBuilder {
       open
     });
     return block;
-  }
-
-  parseFunctionExpression (warp: boolean) {
-    const first = this.pos + 1;
-    const expression = super.parseFunctionExpression(warp);
-    this.parameters.set(expression.body, expression.params.map((_, index) => {
-      return this.tokens[first + index * 2];
-    }));
-    return expression;
   }
 
   parseIf () {
@@ -282,6 +272,8 @@ export function parse (source: string) {
     ignored: tokenizer.ignored,
     spans: parser.spans,
     expressions: parser.expressions,
-    parameters: parser.parameters
+    locations: parser.locations,
+    names: parser.names as WeakMap<object, SourceToken[]>,
+    typeTokens: parser.typeTokens as SourceToken[]
   };
 }

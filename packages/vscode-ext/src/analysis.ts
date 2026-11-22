@@ -1,5 +1,8 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { extensions, globals } from '../../compiler/src/blocks/index.ts';
-import { arrayMethods, internals } from '../../compiler/src/blocks/categories/arrays.ts';
+import { internals, listMethods } from '../../compiler/src/blocks/categories/list-bindings.ts';
+import TypeChecker from '../../compiler/src/type-checker.ts';
 import {
   NodeType,
   TokenType,
@@ -69,12 +72,12 @@ const internalBuiltins = { ...builtins, ...describeBindings(internals, 'Claw com
 const modules = Object.fromEntries(Object.entries(extensions).map(([name, members]) => {
   return [name, describeBindings(members, `${name} extension`)];
 }));
-const arrayMembers: Symbols = {
+const listMembers: Symbols = {
   length: {
     name: 'length',
     kind: 'variable'
   },
-  ...Object.fromEntries(Object.entries(arrayMethods).map(([name, [min, max]]) => {
+  ...Object.fromEntries(Object.entries(listMethods).map(([name, [min, max]]) => {
     const count = Number.isFinite(max) ? max : min;
     const parameters = Array.from({ length: count }, (_, index) => {
       const name = `arg${index + 1}`;
@@ -94,6 +97,7 @@ const arrayMembers: Symbols = {
 
 export class Analysis {
   syntax: ReturnType<typeof parse>;
+  types: TypeChecker;
   scopes: Scope[];
   errors: Problem[] = [];
   unreachable: Range[] = [];
@@ -102,10 +106,30 @@ export class Analysis {
   private functions: Procedure[] = [];
   private reachable = true;
 
-  constructor (source: string, internal = false) {
+  constructor (source: string, internal = false, file = '') {
     this.syntax = parse(source);
     this.internal = internal;
     this.builtins = internal ? internalBuiltins : builtins;
+    this.types = new TypeChecker(internal ? {
+      ...globals,
+      ...internals
+    } : globals, extensions, file ? (specifier, importer) => {
+      const resolved = path.resolve(path.dirname(importer), specifier);
+      const file = fs.realpathSync(resolved.endsWith('.claw') ? resolved : resolved + '.claw');
+      return {
+        file,
+        ...parse(fs.readFileSync(file, 'utf8'))
+      };
+    } : undefined);
+    this.types.check({
+      file,
+      ...this.syntax
+    });
+    for (const problem of this.types.problems) {
+      if (problem.file === file) {
+        this.report(problem.message, problem.token as SourceToken);
+      }
+    }
     const root: Scope = {
       start: 0,
       end: source.length + 1,
@@ -209,14 +233,8 @@ export class Analysis {
 
   addProcedure (body: Block, parent: Scope) {
     const scope = this.addScope(body, parent, 'function');
-    for (const parameter of this.syntax.parameters.get(body)) {
+    for (const parameter of this.syntax.names.get(body)) {
       this.define(scope, parameter, { kind: 'parameter' });
-    }
-    if (this.internal) {
-      scope.symbols.push({
-        name: 'thread',
-        kind: 'parameter'
-      });
     }
     const procedure: Procedure = {
       body,
@@ -245,19 +263,20 @@ export class Analysis {
         } else {
           this.define(scope, token, {
             kind: node.constant ? 'constant' : 'variable',
-            members: node.list || node.init?.type === NodeType.ArrayExpression ? arrayMembers : value?.members
+            members: node.list ? listMembers : value?.members
           });
         }
         return false;
       }
       case NodeType.ImportStatement: {
-        const { first } = this.syntax.spans.get(node);
-        if (scope.kind !== 'module') {
-          this.report('Imports are only allowed at module scope.', this.syntax.tokens[first]);
-        }
         const members = Object.hasOwn(modules, node.source) ? modules[node.source] : undefined;
+        const runtime = this.types.imports.get(node);
         for (const [index, name] of node.names.entries()) {
-          const token = this.syntax.tokens[first + (node.defaultImport ? 1 : 2 + index * 2)];
+          const token = this.syntax.names.get(node)[index];
+          if (node.typeOnly || (runtime && !runtime.includes(name))) {
+            this.syntax.typeTokens.push(token);
+            continue;
+          }
           if (members && node.defaultImport) {
             this.define(scope, token, {
               kind: 'object',
@@ -266,28 +285,22 @@ export class Analysis {
           } else if (members && Object.hasOwn(members, name)) {
             this.define(scope, token, members[name]);
           } else {
-            if (members) {
-              this.report(`"${name}" is not exported from "${node.source}".`, token);
-            }
             this.define(scope, token, { kind: 'import' });
           }
         }
         return false;
       }
       case NodeType.ExportStatement: {
-        const { first } = this.syntax.spans.get(node);
-        const { tokens } = this.syntax;
-        if (scope.kind !== 'module') {
-          this.report('Exports are only allowed at module scope.', tokens[first]);
-        }
-        const start = tokens[first + 1].type === TokenType.LBRACE ? first + 2 : first + 1;
+        const runtime = this.types.exports.get(node);
         for (const [index, name] of node.names.entries()) {
-          if (!this.lookup(name, scope)) {
-            this.report(`Cannot export undefined name "${name}".`, tokens[start + index * 2]);
+          if (node.typeOnly || (runtime && !runtime.includes(name))) {
+            this.syntax.typeTokens.push(this.syntax.names.get(node)[index]);
           }
         }
         return false;
       }
+      case NodeType.TypeDeclaration:
+        return false;
       case NodeType.FunctionDeclaration: {
         const { first } = this.syntax.spans.get(node);
         this.define(scope, this.syntax.tokens[first + 1], {
@@ -311,8 +324,7 @@ export class Analysis {
         const stopped = this.visitBody(node.body.body, bodyScope);
         const handlerScope = this.addScope(node.handler, scope);
         if (node.parameter) {
-          const { first } = this.syntax.spans.get(node.handler);
-          const parameter = this.syntax.tokens[first - 2];
+          const [parameter] = this.syntax.names.get(node);
           handlerScope.start = parameter.start;
           this.define(handlerScope, parameter, { kind: 'variable' });
         }
@@ -415,14 +427,14 @@ export class Analysis {
           return object;
         }
 
-        const members = object?.kind === 'object' ? object.members : arrayMembers;
+        const members = object?.kind === 'object' ? object.members : listMembers;
         const member = Object.hasOwn(members, node.property) ? members[node.property] : undefined;
         if (!member || (object?.kind !== 'object' && member.kind === 'function' && use !== 'call')) {
           this.report(`Unknown ${use === 'call' ? 'method' : 'property'} "${node.property}".`, range);
           return;
         }
         if (object?.kind === 'function') {
-          this.report(`"${object.name}" cannot be used as an array.`, expressions.get(node.object));
+          this.report(`"${object.name}" cannot be used as a list.`, expressions.get(node.object));
           return;
         }
         return this.checkUse(member, use, range);
@@ -478,7 +490,7 @@ export class Analysis {
     }
     if ((use === 'assign' || use === 'increment' || use === 'decrement') &&
         node.type !== NodeType.IndexExpression) {
-      this.report('Expected a writable variable or array element.', range);
+      this.report('Expected a writable variable or list element.', range);
     }
   }
 
@@ -525,18 +537,18 @@ export class Analysis {
 
   visitArgument (argument: Expression, scope: Scope, callee: Symbol | undefined, index: number) {
     const kind = callee?.args?.[index];
-    const arrayCallback = index === 0 && callee?.arity && (callee.name === 'map' || callee.name === 'filter');
-    if (kind === 'body' || arrayCallback) {
+    const listCallback = index === 0 && callee?.arity && (callee.name === 'map' || callee.name === 'filter');
+    if (kind === 'body' || listCallback) {
       const errorCount = this.errors.length;
       const callback = this.visitExpression(argument, scope, 'binding');
-      const max = arrayCallback ? 3 : 0;
+      const max = listCallback ? 3 : 0;
 
       if (this.errors.length === errorCount && callback?.kind !== 'import' &&
           (callback?.kind !== 'function' || callback.blockType === 'hat' ||
-            callback.blockType === (arrayCallback ? 'command' : 'reporter') || callback.parameters.length > max ||
-            (arrayCallback && callback.args?.some(arg => typeof arg !== 'number')))) {
-        const message = arrayCallback
-          ? 'Array callbacks need a function that returns a value and accepts up to three value parameters.'
+            callback.blockType === (listCallback ? 'command' : 'reporter') || callback.parameters.length > max ||
+            (listCallback && callback.args?.some(arg => typeof arg !== 'number')))) {
+        const message = listCallback
+          ? 'List callbacks need a function that returns a value and accepts up to three value parameters.'
           : 'Block bodies need a command or function without parameters.';
 
         this.report(message, this.syntax.expressions.get(argument));

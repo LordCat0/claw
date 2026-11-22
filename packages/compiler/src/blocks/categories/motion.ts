@@ -96,6 +96,7 @@ export default {
       get: {
         kind: 'function',
         blockType: 'reporter',
+        resultType: 'number',
         args: [],
         create: () => ({
           opcode: 'motion_xposition'
@@ -118,6 +119,7 @@ export default {
       get: {
         kind: 'function',
         blockType: 'reporter',
+        resultType: 'number',
         args: [],
         create: () => ({
           opcode: 'motion_yposition'
@@ -140,6 +142,7 @@ export default {
       get: {
         kind: 'function',
         blockType: 'reporter',
+        resultType: 'number',
         args: [],
         create: () => ({
           opcode: 'motion_direction'

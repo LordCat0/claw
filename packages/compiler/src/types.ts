@@ -49,7 +49,8 @@ export enum Keyword {
   true = 'true',
   false = 'false',
   import = 'import',
-  export = 'export'
+  export = 'export',
+  type = 'type'
 }
 
 export interface Token {
@@ -81,6 +82,7 @@ export const enum NodeType {
   ThrowStatement = 'ThrowStatement',
   ImportStatement = 'ImportStatement',
   ExportStatement = 'ExportStatement',
+  TypeDeclaration = 'TypeDeclaration',
   BinaryExpression = 'BinaryExpression',
   ConditionalExpression = 'ConditionalExpression',
   UnaryExpression = 'UnaryExpression',
@@ -112,7 +114,29 @@ export type Statement =
   | TryStatement
   | ThrowStatement
   | ImportStatement
-  | ExportStatement;
+  | ExportStatement
+  | TypeDeclaration;
+
+export type TypeSyntax =
+  | { kind: 'reference'; name: string; args: TypeSyntax[] }
+  | { kind: 'literal'; value: string | number | boolean }
+  | { kind: 'array'; element: TypeSyntax }
+  | { kind: 'union'; members: TypeSyntax[] }
+  | {
+    kind: 'function';
+    params: {
+      name: string;
+      annotation: TypeSyntax 
+    }[];
+    result: TypeSyntax
+  };
+
+export interface TypeDeclaration {
+  type: NodeType.TypeDeclaration;
+  name: string;
+  annotation: TypeSyntax;
+  exported?: boolean;
+}
 
 export type Expression =
   | BinaryExpression
@@ -157,6 +181,7 @@ export interface VarDeclaration {
   constant: boolean;
   list: boolean;
   init: Expression | null;
+  annotation?: TypeSyntax;
 }
 
 export interface IfStatement {
@@ -207,6 +232,8 @@ export interface FunctionDeclaration {
   type: NodeType.FunctionDeclaration;
   name: string;
   params: string[];
+  paramTypes?: (TypeSyntax | undefined)[];
+  returnType?: TypeSyntax;
   warp: boolean;
   body: Block;
 }
@@ -214,6 +241,8 @@ export interface FunctionDeclaration {
 export interface FunctionExpression {
   type: NodeType.FunctionExpression;
   params: string[];
+  paramTypes?: (TypeSyntax | undefined)[];
+  returnType?: TypeSyntax;
   warp: boolean;
   body: Block;
 }
@@ -240,11 +269,13 @@ export interface ImportStatement {
   names: string[];
   source: string;
   defaultImport: boolean;
+  typeOnly?: boolean;
 }
 
 export interface ExportStatement {
   type: NodeType.ExportStatement;
   names: string[];
+  typeOnly?: boolean;
 }
 
 export interface BinaryExpression {
@@ -267,7 +298,7 @@ export interface UnaryExpression {
   value: Expression;
 }
 
-interface CallExpression {
+export interface CallExpression {
   type: NodeType.CallExpression;
   callee: Expression;
   arguments: Expression[];
@@ -413,19 +444,16 @@ export interface CallArguments {
 export interface FunctionBinding {
   kind: 'function';
   blockType: 'command' | 'reporter' | 'hat';
+  resultType?: 'number' | 'string' | 'boolean' | 'never';
   compile?: () => Promise<void>;
   listCallback?: (list: ListBinding) => Promise<FunctionBinding>;
   args: FunctionArgument[];
   create: (args: CallArguments, compiler: Compiler) => BlockOptions;
-  reference?: (args: CallArguments, compiler: Compiler) => ScratchInput;
-  scalar?: boolean;
-  referenceVariables?: string[];
-  shared?: 'locked' | 'helper';
+  shared?: boolean;
   procedure?: {
     frame: CallFrame | null;
     captures: string[];
     result: VariableBinding | null;
-    variables: VariableBinding[];
   };
 }
 
@@ -434,8 +462,6 @@ export interface VariableBinding {
   temporary?: boolean;
   boolean?: boolean;
   constantValue?: Literal;
-  reference?: VariableBinding;
-  scalar?: boolean;
   get: FunctionBinding;
   set?: FunctionBinding;
   storage?: {

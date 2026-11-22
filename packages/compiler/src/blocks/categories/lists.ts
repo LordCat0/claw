@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import uid from '../../util/uid.ts';
-import { arrayMethods } from './arrays.ts';
 import data from './data.ts';
+import { listMethods } from './list-bindings.ts';
 import {
   NodeType,
   type Expression,
@@ -23,7 +23,7 @@ const defaults: Record<string, ScratchInput[]> = {
 };
 const copies = ['slice', 'copy', 'concat', 'splice', 'remove', 'map', 'filter'];
 const returnsList = [...copies, 'clear', 'fill', 'reverse', 'sort'];
-const helpersPath = fileURLToPath(new URL('../../internal/lists.claw', import.meta.url));
+export const listRuntimePath = fileURLToPath(new URL('../../internal/lists.claw', import.meta.url));
 const listBlocks = data.globals.lists.members;
 
 class ListOperations {
@@ -88,7 +88,7 @@ class ListOperations {
 
   async set (list: ListBinding, index: ScratchInput | null, value: ScratchInput, scope: Scope) {
     if (index) {
-      return this.run('listSet', list, scope, [index, await this.scalar(value, scope)], false);
+      return this.run('listSet', list, scope, [index, value], false);
     }
 
     return this.run('listResize', list, scope, [value], false);
@@ -130,11 +130,11 @@ class ListOperations {
     asValue: boolean,
     target?: ListBinding
   ): Promise<ScratchInput | ListBinding> {
-    if (!Object.hasOwn(arrayMethods, name)) {
+    if (!Object.hasOwn(listMethods, name)) {
       throw new Error(`Unknown list method "${name}".`);
     }
 
-    const [min, max] = arrayMethods[name];
+    const [min, max] = listMethods[name];
     if (expressions.length < min || expressions.length > max) {
       throw new Error(`Invalid number of arguments for list.${name}.`);
     }
@@ -196,7 +196,7 @@ class ListOperations {
       case 'slice':
       case 'copy':
         if (result) {
-          await this.copy(list, result, scope, [first || zero, second || end]);
+          await this.copy(list, result, scope, first ? [first, second || end] : undefined);
         }
         return result || scope.lastBlock;
       case 'insert':
@@ -287,25 +287,10 @@ class ListOperations {
       }
 
       const value = await compiler.parseExpression(expression, scope, true);
-      values.push(await this.scalar(value, scope, capture || expressions.length > 1));
+      values.push(capture || expressions.length > 1 ? compiler.capture(value, scope) : value);
     }
 
     return values;
-  }
-
-  private async scalar (value: ScratchInput, scope: Scope, capture = false) {
-    const compiler = this._compiler;
-    value = capture || !compiler.isScalar(value) ? compiler.capture(value, scope) : value;
-
-    if (!compiler.isScalar(value)) {
-      const isArray = compiler.reporter('operator_gt', {
-        OPERAND1: compiler.arrayReference(value),
-        OPERAND2: compiler.number(0)
-      });
-      await this.failIf(isArray, 'Scratch list items must be scalar values.', scope);
-    }
-
-    return value;
   }
 
   private async add (list: ListBinding, values: ScratchInput[], scope: Scope, start?: ScratchInput) {
@@ -344,10 +329,14 @@ class ListOperations {
     source: ListBinding,
     target: ListBinding,
     scope: Scope,
-    range = [zero, end]
+    range?: ScratchInput[]
   ) {
     this.block(target, 'clear', [], scope);
-    await this.run('listAppend', source, scope, range, false, target);
+    if (range) {
+      await this.run('listAppend', source, scope, range, false, target);
+    } else {
+      await this.run('listTake', source, scope, [zero, this.length(source)], false, target);
+    }
   }
 
   private async run (
@@ -376,8 +365,12 @@ class ListOperations {
         helper.define('target', target);
       }
 
-      const program = compiler.loadPrograms(helpersPath);
-      for (const declaration of program.body as FunctionDeclaration[]) {
+      const program = compiler.loadPrograms(listRuntimePath);
+      const template = program.body.find((statement): statement is FunctionDeclaration => {
+        return statement.type === NodeType.FunctionDeclaration && statement.name === 'listHelpers';
+      });
+
+      for (const declaration of template.body.body as FunctionDeclaration[]) {
         await compiler.parseFunction(declaration, helper);
       }
 
@@ -432,10 +425,6 @@ class ListOperations {
       apply = method === 'filter'
         ? `if (${call}) { lists.add(target, value); }`
         : `lists.replace(target, index + 1, ${call});`;
-
-      if (method === 'map' && compiler.arrays) {
-        apply = `target[index] = ${call};`;
-      }
     }
 
     const binding = await compiler.parseBuiltin(`

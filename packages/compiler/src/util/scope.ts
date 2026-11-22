@@ -3,9 +3,7 @@ import type CallFrame from './call-frame.ts';
 import type {
   Binding,
   Bindings,
-  FunctionBinding,
-  VariableBinding,
-  ScratchInput
+  VariableBinding
 } from '../types.ts';
 
 class Scope {
@@ -20,11 +18,8 @@ class Scope {
   loopState: VariableBinding | null;
   breakState: VariableBinding | null;
   parameters: string[];
-  thread: ScratchInput | null;
   internal: boolean;
-  referenceVariables: string[];
   result: VariableBinding | null;
-  variables: VariableBinding[];
   temporaries: {
     values: VariableBinding[];
     next: number;
@@ -42,11 +37,8 @@ class Scope {
     this.loopState = parent?.loopState || null;
     this.breakState = parent?.breakState || null;
     this.parameters = parent?.parameters || [];
-    this.thread = parent?.thread || null;
     this.internal = parent?.internal || false;
-    this.referenceVariables = parent?.referenceVariables || [];
     this.result = parent?.result || null;
-    this.variables = parent?.variables || [];
     this.temporaries = parent?.temporaries || {
       values: [],
       next: 0
@@ -112,35 +104,22 @@ class Scope {
     }
 
     this.define(name, variable);
-    this.variables.push(variable);
     return variable;
   }
 
-  defineParam (name: string, parameter = name, reference?: string) {
-    const reporter = (value: string): FunctionBinding => ({
-      kind: 'function',
-      blockType: 'reporter',
-      args: [],
-      create: () => ({
-        opcode: 'argument_reporter_string_number',
-        fields: { VALUE: [value, null] }
-      })
-    });
-    const variable: VariableBinding = {
+  defineParam (name: string, parameter: string) {
+    this.define(name, {
       kind: 'variable',
-      get: reporter(parameter)
-    };
-
-    if (reference) {
-      // Callers hold array arguments until this call returns
-      variable.reference = {
-        kind: 'variable',
-        scalar: true,
-        get: reporter(reference)
-      };
-    }
-
-    this.define(name, variable);
+      get: {
+        kind: 'function',
+        blockType: 'reporter',
+        args: [],
+        create: () => ({
+          opcode: 'argument_reporter_string_number',
+          fields: { VALUE: [parameter, null] }
+        })
+      }
+    });
   }
 
   resolve (name: string): Binding | null {
@@ -162,7 +141,6 @@ class Scope {
       child.inTry = false;
       child.loopState = null;
       child.breakState = null;
-      child.variables = [];
       child.temporaries = {
         values: [],
         next: 0

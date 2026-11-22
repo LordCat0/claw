@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import JSZip from 'jszip';
 import Tokenizer from './tokenizer.ts';
 import ASTBuilder from './ast.ts';
+import TypeChecker, { type TypeModule } from './type-checker.ts';
 import {
   newSprite,
   newBlock
@@ -11,17 +11,10 @@ import {
 import uid from './util/uid.ts';
 import Scope from './util/scope.ts';
 import CallFrame from './util/call-frame.ts';
-import arrayBuiltins, {
-  arrayMethod,
-  internals,
-  referenceVariables,
-  arrayResults,
-  numericFunctions
-} from './blocks/categories/arrays.ts';
-import ListOperations from './blocks/categories/lists.ts';
+import ListOperations, { listRuntimePath } from './blocks/categories/lists.ts';
+import { internals } from './blocks/categories/list-bindings.ts';
 import control from './blocks/categories/control.ts';
 import data from './blocks/categories/data.ts';
-import listVariable from './util/list-variable.ts';
 import {
   globals,
   extensions
@@ -77,13 +70,7 @@ class Compiler {
   root: Sprite;
   consoleList: string;
   readyBroadcast: string;
-  arrays: boolean;
   builtins: Scope;
-  arrayCallbacks: {
-    method: string;
-    callback: FunctionBinding;
-    binding: FunctionBinding;
-  }[];
   private _zip: JSZip;
   private _exports: Record<string, Bindings>;
   private _compiledFiles: Record<string, 'visiting' | 'done'>;
@@ -94,12 +81,11 @@ class Compiler {
   private _falsyList: [string, string] | null;
   private _writes: Record<string, boolean>;
   private _booleanInputs: Record<string, boolean>;
-  private _arrayInputs: Record<string, ScratchInput>;
-  private _programs: Record<string, Program>;
+  private _programs: Record<string, TypeModule>;
+  private _types: TypeChecker;
   private _usesThread: boolean;
   private _usesThrow: boolean;
   private _lists: Record<string, [string, string]>;
-  private _rootCount: number;
   private _frameSizes: number[];
   private _listOperations: ListOperations;
 
@@ -153,11 +139,8 @@ class Compiler {
     this._exports = {};
     this._compiledFiles = {};
     this._startup = new Scope();
-    this.arrays = false;
     this.builtins = null;
-    this.arrayCallbacks = [];
     this._lists = {};
-    this._rootCount = 0;
     this._frameSizes = [];
     this._listOperations = new ListOperations(this);
     this.readyBroadcast = uid();
@@ -168,8 +151,10 @@ class Compiler {
     this._falsyList = null;
     this._writes = {};
     this._booleanInputs = {};
-    this._arrayInputs = {};
     this._programs = {};
+    this._types = new TypeChecker(globals, extensions, (source, file) => {
+      return this.loadModule(this.resolveImport(source, file));
+    });
     this._usesThread = false;
     this._usesThrow = false;
     Object.assign(this._globals.bindings, globals);
@@ -297,35 +282,6 @@ class Compiler {
     return this.parseFunction(program.body[0] as FunctionDeclaration, scope);
   }
 
-  writeReference (variable: VariableBinding, value: ScratchInput, scope: Scope) {
-    // Root writes stay inline so assignments cannot yield halfway through
-    if (!scope.internal || scope.frame) {
-      const index = this.reporter('operator_add', {
-        NUM1: this.read(variable),
-        NUM2: this.number(5)
-      });
-      this.write(listVariable(this.list('$objects'), index),
-        this.read(this.builtins.resolve('epoch') as VariableBinding), scope);
-    }
-
-    this.write(variable, value, scope);
-  }
-
-  async clearReference (variable: VariableBinding, scope: Scope) {
-    if (scope.internal && !scope.frame) {
-      this.write(variable, this.number(0), scope);
-      return;
-    }
-
-    const block = variable.get.create({
-      inputs: [],
-      fields: [],
-      bodies: []
-    }, this);
-    const name = block.fields.LIST[1] === this.list('$roots')[1] ? 'clearRoot' : 'clearLocal';
-    await this.builtin(name, [block.inputs.INDEX], scope, false);
-  }
-
   attachSubstack (parent: string, input: string, scope: Scope) {
     this.root.blocks[parent].inputs[input] = [2, scope.firstBlock];
 
@@ -362,13 +318,12 @@ class Compiler {
     return branch || end;
   }
 
-  temporary (scope: Scope, scalar = false): VariableBinding {
+  temporary (scope: Scope): VariableBinding {
     const index = scope.temporaries.next++;
     let variable = scope.temporaries.values[index];
 
     if (variable) {
       variable.boolean = undefined;
-      variable.scalar = scalar;
       return variable;
     }
 
@@ -378,11 +333,9 @@ class Compiler {
       const id = uid();
       variable = new Scope().defineVariable('$temporary', id);
       this.root.variables[id] = [variable.storage.name, ''];
-      scope.variables.push(variable);
     }
 
     variable.temporary = true;
-    variable.scalar = scalar;
     scope.temporaries.values[index] = variable;
     return variable;
   }
@@ -410,40 +363,12 @@ class Compiler {
       this._booleanInputs[id] = true;
     }
 
-    if (variable.reference && !variable.scalar) {
-      this.tagArray(value, this.read(variable.reference));
-    }
-
-    return value;
-  }
-
-  arrayReference (value: ScratchInput): ScratchInput {
-    return this._arrayInputs[value[1] as string] || [1, [4, 0]];
-  }
-
-  isScalar (value: ScratchInput) {
-    const reference = this.arrayReference(value);
-    return reference[0] === 1 && Array.isArray(reference[1]) && reference[1][1] === 0;
-  }
-
-  tagArray (value: ScratchInput, reference: ScratchInput) {
-    this._arrayInputs[value[1] as string] = reference;
     return value;
   }
 
   write (variable: VariableBinding, value: ScratchInput, scope: Scope) {
     if (variable.temporary) {
       variable.boolean = variable.boolean !== false && this.isBoolean(value);
-    }
-
-    if (this.arrays && !variable.scalar && !variable.reference && variable.storage) {
-      variable.reference = listVariable(this.list('$roots'), this.number(++this._rootCount));
-    }
-
-    const reference = variable.reference;
-
-    if (reference) {
-      this.writeReference(reference, this.arrayReference(value), scope);
     }
 
     return this.append(scope, variable.set.create({
@@ -462,7 +387,7 @@ class Compiler {
       return value;
     }
 
-    const variable = target || this.temporary(scope, this.isScalar(value));
+    const variable = target || this.temporary(scope);
     this.write(variable, value, scope);
     return this.read(variable);
   }
@@ -533,21 +458,9 @@ class Compiler {
   }
 
   equals (left: ScratchInput, right: ScratchInput): ScratchInput {
-    const value = this.reporter('operator_equals', {
+    return this.reporter('operator_equals', {
       OPERAND1: left,
       OPERAND2: right
-    });
-
-    if (!this.arrays || (this.isScalar(left) && this.isScalar(right))) {
-      return value;
-    }
-
-    return this.reporter('operator_and', {
-      OPERAND1: value,
-      OPERAND2: this.reporter('operator_equals', {
-        OPERAND1: this.arrayReference(left),
-        OPERAND2: this.arrayReference(right)
-      })
     });
   }
 
@@ -761,11 +674,6 @@ class Compiler {
 
       if (values && typeof argument === 'number') {
         args.inputs[i] = values[i];
-
-        if (this.arrays && definition.procedure && !scope.internal && !this.isScalar(args.inputs[i])) {
-          args.inputs[i] = this.capture(args.inputs[i], scope);
-        }
-
         continue;
       }
       const literal =
@@ -790,8 +698,7 @@ class Compiler {
           args.inputs[i] = await this.parseExpression(expression, scope, true);
 
           if ((definition.procedure?.frame && this.needsFrame(expression, true, scope)) ||
-              expressions.slice(i + 1).some(value => this.needsFrame(value, true, scope)) ||
-              (this.arrays && definition.procedure && !scope.internal && !this.isScalar(args.inputs[i]))) {
+              expressions.slice(i + 1).some(value => this.needsFrame(value, true, scope))) {
             args.inputs[i] = this.capture(args.inputs[i], scope);
           }
         }
@@ -878,19 +785,9 @@ class Compiler {
     let frameIndex: ScratchInput;
     const procedure = definition.procedure;
 
-    if (this.arrays && procedure) {
-      args.inputs.push(...args.inputs
-        .filter((_, index) => definition.args[index] === 10)
-        .map(value => this.arrayReference(value)));
-    }
-
     if (procedure?.frame) {
       frameIndex = await procedure.frame.allocate(scope);
       args.inputs.push(frameIndex);
-    }
-
-    if (this.arrays && procedure) {
-      args.inputs.push(scope.thread || frameIndex || [1, [10, scope.id]]);
     }
 
     if (procedure) {
@@ -911,16 +808,6 @@ class Compiler {
       throw new Error('Compiler variables are private.');
     }
 
-    if (this.arrays && !scope.internal) {
-      if (block.opcode === 'control_delete_this_clone') {
-        return this.builtin('deleteClone', [], scope, false);
-      }
-
-      if (block.opcode === 'control_stop' && block.fields.STOP_OPTION[0] === 'other scripts in sprite') {
-        return this.builtin('stopOthers', [], scope, false);
-      }
-    }
-
     if (definition.blockType === 'hat') {
       this.insertBlock(block);
 
@@ -934,13 +821,7 @@ class Compiler {
     }
 
     if (definition.blockType === 'reporter') {
-      const value: ScratchInput = [2, this.insertBlock(block)];
-
-      if (definition.reference) {
-        this.tagArray(value, definition.reference(args, this));
-      }
-
-      return value;
+      return [2, this.insertBlock(block)];
     }
 
     if (block.opcode === 'control_delete_this_clone') {
@@ -982,21 +863,8 @@ class Compiler {
       return asValue ? result : scope.lastBlock;
     }
 
-    if (definition.shared) {
-      const result = asValue ? this.capture(this.read(procedure.result), scope) : null;
-
-      for (const variable of procedure.variables) {
-        if (variable.reference && !variable.scalar) {
-          await this.clearReference(variable.reference, scope);
-        }
-      }
-
-      if (definition.shared === 'locked') {
-        // Copy the shared result before releasing the lock
-        await this.builtin('leave', [], scope, false);
-      }
-
-      return result || scope.lastBlock;
+    if (definition.shared && asValue) {
+      return this.capture(this.read(procedure.result), scope);
     }
 
     if (asValue && procedure) {
@@ -1014,7 +882,6 @@ class Compiler {
   ) {
     const childScope = parentScope.createChild();
     await this.parseASTBody(bodyStatements, childScope);
-    await this.releaseScope(childScope);
 
     if (childScope.firstBlock) {
       this.attachSubstack(parentBlockId, input, childScope);
@@ -1242,27 +1109,14 @@ class Compiler {
     }
 
     switch (expression.type) {
-      case NodeType.ArrayExpression: {
-        const array = await this.builtin('create', [this.number(expression.elements.length)], scope);
-
-        for (const element of expression.elements) {
-          const value = await this.parseExpression(element, scope, true);
-          await this.builtin('push', [array, value], scope, false);
-        }
-
-        return array;
-      }
+      case NodeType.ArrayExpression:
+        throw new Error('Use the list keyword to declare a list.');
       case NodeType.IndexExpression: {
-        const { read } = await this.parseArrayTarget(expression, scope);
+        const { read } = await this.parseListTarget(expression, scope);
         return read();
       }
       case NodeType.CallExpression: {
         const binding = await this.resolveBinding(expression.callee, scope);
-
-        if (binding === arrayBuiltins.arrays.members.isArray && expression.arguments.length === 1 &&
-            await this._listOperations.resolve(expression.arguments[0], scope)) {
-          return this.booleanLiteral(true);
-        }
 
         if (!binding || binding.kind !== 'function') {
           if (expression.callee.type === NodeType.MemberExpression) {
@@ -1282,10 +1136,6 @@ class Compiler {
                 throw new Error('Use a list declaration to store a list result.');
               }
               return null;
-            }
-
-            if (this.arrays) {
-              return arrayMethod(this, object, property, expression.arguments, scope, asValue);
             }
           }
 
@@ -1319,7 +1169,7 @@ class Compiler {
 
         if (!binding || binding.kind !== 'variable') {
           if (expression.type === NodeType.MemberExpression && expression.property === 'length') {
-            const { read } = await this.parseArrayTarget(expression, scope);
+            const { read } = await this.parseListTarget(expression, scope);
             return read();
           }
 
@@ -1333,7 +1183,7 @@ class Compiler {
             (expression.argument.type === NodeType.MemberExpression &&
               expression.argument.property === 'length' &&
               !(await this.resolveBinding(expression.argument, scope)))) {
-          const { read, write } = await this.parseArrayTarget(expression.argument, scope, true);
+          const { read, write } = await this.parseListTarget(expression.argument, scope, true);
           const old = await read();
           const previous = asValue ? this.capture(old, scope) : old;
           const value: ScratchInput = [2, this.insertBlock({
@@ -1435,12 +1285,12 @@ class Compiler {
     const { cases, discriminant } = statement;
     const tests = cases.map(clause => clause.test).filter(test => test !== null);
     let value = await this.parseExpression(discriminant, scope, true);
-    const state = this.canDispatchSwitchDirectly(statement) ? null : this.temporary(scope, true);
+    const state = this.canDispatchSwitchDirectly(statement) ? null : this.temporary(scope);
 
     if (!this.constantValue(discriminant, scope) &&
         (tests.length !== 1 || this.needsFrame(tests[0], true, scope))) {
       // Once a case is selected, its index can replace the scalar discriminant
-      value = this.capture(value, scope, this.isScalar(value) ? state : null);
+      value = this.capture(value, scope, state);
     }
 
     const switchScope = scope.createChild();
@@ -1480,10 +1330,8 @@ class Compiler {
           }
         });
 
-        if (!this.arrays) {
-          // The condition has read its temporaries before either branch runs
-          matchScope.temporaries.next = nextTemporary;
-        }
+        // The condition has read its temporaries before either branch runs
+        matchScope.temporaries.next = nextTemporary;
 
         if (previousBranch) {
           this.attachSubstack(previousBranch, 'SUBSTACK2', matchScope);
@@ -1549,7 +1397,6 @@ class Compiler {
       }
     }
 
-    await this.releaseScope(switchScope);
     scope.firstBlock = scope.firstBlock || switchScope.firstBlock;
     scope.lastBlock = switchScope.lastBlock;
     return scope.lastBlock;
@@ -1648,7 +1495,6 @@ class Compiler {
     }
 
     await this.parseASTBody(body, bodyScope);
-    await this.releaseScope(bodyScope);
 
     if (!this.endsWithStop(bodyScope)) {
       // Use loop bindings for updates and conditions
@@ -1689,16 +1535,13 @@ class Compiler {
     return loop;
   }
 
-  private async parseArrayTarget (target: IndexExpression | MemberExpression, scope: Scope, updating = false) {
+  private async parseListTarget (target: IndexExpression | MemberExpression, scope: Scope, updating = false) {
     const list = await this._listOperations.resolve(target.object, scope);
 
-    if (!list && !this.arrays) {
-      throw new Error('Expected a list or array.');
+    if (!list) {
+      throw new Error('Expected a list.');
     }
 
-    const array = list
-      ? null
-      : this.capture(await this.parseExpression(target.object, scope, true), scope);
     let index = target.type === NodeType.IndexExpression
       ? await this.parseExpression(target.index, scope, true)
       : null;
@@ -1707,19 +1550,10 @@ class Compiler {
       index = this.capture(index, scope);
     }
 
-    if (list) {
-      return {
-        read: () => this._listOperations.get(list, index, scope),
-        write: (value: ScratchInput) =>
-          this._listOperations.set(list, index, value, scope)
-      };
-    }
-
-    const inputs = index ? [array, index] : [array];
     return {
-      read: () => this.builtin(index ? 'get' : 'length', inputs, scope),
+      read: () => this._listOperations.get(list, index, scope),
       write: (value: ScratchInput) =>
-        this.builtin(index ? 'set' : 'resize', [...inputs, value], scope, false)
+        this._listOperations.set(list, index, value, scope)
     };
   }
 
@@ -1729,7 +1563,6 @@ class Compiler {
         const blockScope = scope.createChild();
         blockScope.lastBlock = scope.lastBlock;
         await this.parseASTBody(statement.body, blockScope);
-        await this.releaseScope(blockScope);
         scope.firstBlock = scope.firstBlock || blockScope.firstBlock;
         scope.lastBlock = blockScope.lastBlock;
         return scope.lastBlock;
@@ -1741,10 +1574,10 @@ class Compiler {
           const target = statement.target;
 
           if (target.type === NodeType.MemberExpression && target.property !== 'length') {
-            throw new Error('Only the length property of a list or array can be assigned.');
+            throw new Error('Only the length property of a list can be assigned.');
           }
 
-          const { read, write } = await this.parseArrayTarget(target, scope, true);
+          const { read, write } = await this.parseListTarget(target, scope, true);
           const old = statement.operator ? this.capture(await read(), scope) : null;
           let value = await this.parseExpression(statement.value, scope, true);
 
@@ -1813,21 +1646,6 @@ class Compiler {
         return this.parseLoop(statement, scope);
       }
       case NodeType.IfStatement: {
-        if (scope.internal && statement.test.type === NodeType.MemberExpression &&
-            statement.test.object.type === NodeType.Identifier &&
-            statement.test.object.name === 'compiler' && statement.test.property === 'arrays') {
-          if (this.arrays) {
-            const branch = scope.createChild();
-            branch.lastBlock = scope.lastBlock;
-            await this.parseASTBody(statement.consequent.body, branch);
-            await this.releaseScope(branch);
-            scope.firstBlock = scope.firstBlock || branch.firstBlock;
-            scope.lastBlock = branch.lastBlock;
-          }
-
-          return scope.lastBlock;
-        }
-
         const test = await this.parseExpression(statement.test, scope, true);
         const hasElse = statement.alternate !== null;
         const ifId = this.append(scope, {
@@ -1856,7 +1674,6 @@ class Compiler {
           await this.parseLoop(statement, forScope);
         }
 
-        await this.releaseScope(forScope);
         scope.firstBlock = scope.firstBlock || forScope.firstBlock;
         scope.lastBlock = forScope.lastBlock;
         return scope.lastBlock;
@@ -1881,7 +1698,6 @@ class Compiler {
           : [1, [10, '']] as ScratchInput;
         const newVarId = uid();
         const variable = scope.defineVariable(statement.name, newVarId);
-        variable.scalar = scope.internal && !scope.referenceVariables.includes(statement.name);
         variable.boolean = this._writes[statement.name] !== false && this.isBoolean(value);
 
         if (!Object.hasOwn(this._writes, statement.name) && statement.init) {
@@ -1893,7 +1709,8 @@ class Compiler {
           target.variables[newVarId] = [variable.storage.name, ''];
         }
 
-        const assignment = this.write(variable, value, scope);
+        const declarationOnly = scope.internal && scope.parent === this._globals && !statement.init;
+        const assignment = declarationOnly ? scope.lastBlock : this.write(variable, value, scope);
 
         if (statement.constant) {
           delete variable.set;
@@ -1921,6 +1738,11 @@ class Compiler {
           throw new Error('Imports are only allowed at module scope.');
         }
 
+        const names = this._types.imports.get(statement) || statement.names;
+        if (!this.hasRuntimeImport(statement)) {
+          return scope.lastBlock;
+        }
+
         let fileExports: Bindings;
         if (Object.hasOwn(extensions, statement.source)) {
           fileExports = extensions[statement.source];
@@ -1936,13 +1758,16 @@ class Compiler {
             this.extensions.push(statement.source);
           }
         } else {
+          if (!names.length) {
+            return scope.lastBlock;
+          }
           const resolvedPath = this.resolveImport(statement.source);
           fileExports = this._exports[resolvedPath];
           if (!fileExports) {
             throw new Error(`No exports found from "${statement.source}"`);
           }
         }
-        for (const name of statement.names) {
+        for (const name of names) {
           if (!Object.hasOwn(fileExports, name)) {
             throw new Error(`"${name}" is not exported from "${statement.source}"`);
           }
@@ -1956,7 +1781,7 @@ class Compiler {
         }
 
         this._exports[this._currentFile] = this._exports[this._currentFile] || {};
-        for (const name of statement.names) {
+        for (const name of this._types.exports.get(statement) || statement.names) {
           const binding = scope.resolve(name);
           if (!binding) {
             throw new Error(`"${name}" is not defined and cannot be exported.`);
@@ -1965,6 +1790,8 @@ class Compiler {
         }
         return scope.lastBlock;
       }
+      case NodeType.TypeDeclaration:
+        return scope.lastBlock;
       case NodeType.FunctionDeclaration: {
         await this.parseFunction(statement, scope);
         return scope.lastBlock;
@@ -2054,7 +1881,6 @@ class Compiler {
     }
 
     await this.parseASTBody(statement.handler.body, handler);
-    await this.releaseScope(handler);
     this.attachSubstack(branch, 'SUBSTACK', handler);
     return branch;
   }
@@ -2127,59 +1953,43 @@ class Compiler {
       create: (args, compiler) => create(args, compiler),
       compile: async () => {
         const funcScope = scope.createChild(true);
-        const handlesExit = !scope.internal || name === 'transform';
+        const handlesExit = !scope.internal;
         const canStop = this._usesThread && handlesExit;
         const canThrow = this._usesThrow && handlesExit;
         funcScope.frame = !binding.shared &&
-          (canStop || canThrow || this.arrays || this.needsFrame(expression.body))
+          (canStop || canThrow || this.needsFrame(expression.body))
           ? new CallFrame(this, canStop, canThrow)
           : null;
-        funcScope.referenceVariables = binding.referenceVariables || [];
 
         if (funcScope.frame) {
-          funcScope.frame.result.scalar = binding.scalar;
           funcScope.result = funcScope.frame.result;
         } else if (binding.shared) {
           funcScope.result = funcScope.defineVariable('$result', uid());
-          funcScope.result.scalar = binding.scalar;
           const storage = funcScope.result.storage;
           this.root.variables[storage.id] = [storage.name, ''];
         }
 
         const args = params.map(parameter => `${parameter}@${funcScope.id}`);
-        const references = args.map((parameter, index) => {
-          return this.arrays && binding.args[index] === 10 ? `${parameter}@reference` : null;
-        });
-        const thread = this.arrays ? [`$thread@${funcScope.id}`] : [];
         const captures = scope.parameters;
         const hidden = funcScope.frame ? [funcScope.frame.parameter] : [];
-        const parameters = [...args, ...references.filter(Boolean), ...hidden, ...thread, ...captures];
+        const parameters = [...args, ...hidden, ...captures];
         const { definition, call } = this.createProcedure(
           `${name}@${scope.id}`, parameters, expression.warp
         );
         funcScope.lastBlock = definition;
         funcScope.parameters = parameters;
-        funcScope.thread = this.arrays ? [2, this.insertBlock({
-          opcode: 'argument_reporter_string_number',
-          fields: { VALUE: [thread[0], null] }
-        })] : null;
         params.forEach((parameter, i) => {
-          funcScope.defineParam(parameter, args[i], references[i]);
+          funcScope.defineParam(parameter, args[i]);
         });
 
         if (list) {
           funcScope.define(expression.params.at(-1), list);
         }
 
-        if (scope.internal && this.arrays) {
-          funcScope.defineParam('thread', thread[0]);
-        }
-
         binding.procedure = {
           frame: funcScope.frame,
           captures,
-          result: funcScope.result,
-          variables: funcScope.variables
+          result: funcScope.result
         };
         create = ({ inputs }) => call(inputs);
 
@@ -2201,26 +2011,7 @@ class Compiler {
       binding.listCallback = list => this.parseFunction(expression, scope, list);
     }
 
-    if (scope.internal) {
-      binding.scalar = !arrayResults.includes(name);
-      binding.referenceVariables = referenceVariables[name] || [];
-
-      if (numericFunctions.includes(name)) {
-        binding.args = expression.params.map(() => 4);
-      }
-
-      if (!['joinValue', 'stopOthers', 'deleteClone', 'transform'].includes(name)) {
-        binding.shared = 'helper';
-        const first = expression.body.body[0];
-
-        if (first?.type === NodeType.ExpressionStatement &&
-            first.expression.type === NodeType.CallExpression &&
-            first.expression.callee.type === NodeType.Identifier &&
-            first.expression.callee.name === 'enter') {
-          binding.shared = 'locked';
-        }
-      }
-    }
+    binding.shared = scope.internal;
 
     if (!list && expression.type === NodeType.FunctionDeclaration) {
       scope.define(name, binding);
@@ -2236,14 +2027,6 @@ class Compiler {
       const next = scope.temporaries.next;
       await this.parseStatement(statement, scope);
       const stopped = this.endsWithStop(scope);
-
-      if (this.arrays && !stopped && scope.temporaries.values === values) {
-        for (const variable of values.slice(next, scope.temporaries.next)) {
-          if (variable.reference && !variable.scalar) {
-            await this.clearReference(variable.reference, scope);
-          }
-        }
-      }
 
       scope.temporaries.next = scope.temporaries.values === values ? next : 0;
 
@@ -2292,18 +2075,6 @@ class Compiler {
     }
   }
 
-  async releaseScope (scope: Scope) {
-    if (!this.arrays || this.endsWithStop(scope)) {
-      return;
-    }
-
-    for (const binding of Object.values(scope.bindings)) {
-      if (binding.kind === 'variable' && binding.reference && !binding.scalar) {
-        await this.clearReference(binding.reference, scope);
-      }
-    }
-  }
-
   resolveImport (source: string, filePath = this._currentFile) {
     const importPath = path.resolve(path.dirname(filePath), source);
     const resolvedPath = importPath.endsWith('.claw') ? importPath : importPath + '.claw';
@@ -2312,6 +2083,10 @@ class Compiler {
   }
 
   loadPrograms (filePath: string): Program {
+    return this.loadModule(filePath).program;
+  }
+
+  private loadModule (filePath: string): TypeModule {
     let source: string;
 
     try {
@@ -2326,16 +2101,34 @@ class Compiler {
       throw new Error(`Failed to load file: ${filePath}`);
     }
 
-    const ast = new ASTBuilder().build(new Tokenizer().tokenize(source));
-    this._programs[filePath] = ast;
+    const parser = new ASTBuilder();
+    const program = parser.build(new Tokenizer().tokenize(source));
+    const module = {
+      file: filePath,
+      program,
+      locations: parser.locations,
+      names: parser.names
+    };
+    this._programs[filePath] = module;
+    return module;
+  }
 
-    for (const statement of ast.body) {
-      if (statement.type === NodeType.ImportStatement && !Object.hasOwn(extensions, statement.source)) {
-        this.loadPrograms(this.resolveImport(statement.source, filePath));
+  private hasRuntimeImport (statement: Extract<Statement, { type: NodeType.ImportStatement }>) {
+    const names = this._types.imports.get(statement) || statement.names;
+    return !statement.typeOnly && (!statement.names.length || names.length > 0);
+  }
+
+  private runtimePrograms (module: TypeModule, programs: Record<string, Program>) {
+    programs[module.file] = module.program;
+    for (const statement of module.program.body) {
+      if (statement.type === NodeType.ImportStatement && this.hasRuntimeImport(statement) &&
+          !Object.hasOwn(extensions, statement.source)) {
+        const file = this.resolveImport(statement.source, module.file);
+        if (!programs[file]) {
+          this.runtimePrograms(this.loadModule(file), programs);
+        }
       }
     }
-
-    return ast;
   }
 
   pruneBlocks () {
@@ -2371,60 +2164,6 @@ class Compiler {
         delete blocks[id];
       }
     }
-  }
-
-  usesArrays (
-    node: Program | Statement | Expression | Block,
-    lists: Record<string, boolean>,
-    destinations: string[]
-  ): boolean {
-    if (node.type === NodeType.ArrayExpression) {
-      return true;
-    }
-
-    const usesArrays = (value: Program | Statement | Expression | Block) => {
-      return this.usesArrays(value, lists, destinations);
-    };
-
-    if (node.type === NodeType.VarDeclaration) {
-      lists[node.name] = node.list && lists[node.name] !== false;
-
-      if (node.list && node.init?.type === NodeType.ArrayExpression) {
-        return node.init.elements.some(usesArrays);
-      }
-    }
-
-    if (node.type === NodeType.FunctionDeclaration || node.type === NodeType.FunctionExpression) {
-      for (const name of node.params) {
-        lists[name] = false;
-      }
-    }
-
-    if (node.type === NodeType.TryStatement && node.parameter) {
-      lists[node.parameter] = false;
-    }
-
-    if (node.type === NodeType.Assignment && node.target.type === NodeType.Identifier &&
-        node.value.type === NodeType.ArrayExpression) {
-      destinations.push(node.target.name);
-      return node.value.elements.some(usesArrays);
-    }
-
-    if (node.type === NodeType.CallExpression && node.callee.type === NodeType.MemberExpression &&
-        node.callee.property === 'concat' && node.callee.object.type === NodeType.Identifier) {
-      const name = node.callee.object.name;
-      return node.arguments.some(argument => {
-        if (argument.type === NodeType.ArrayExpression) {
-          destinations.push(name);
-          return argument.elements.some(usesArrays);
-        }
-        return usesArrays(argument);
-      });
-    }
-
-    return Object.values(node).flat().some(value => {
-      return value && typeof value === 'object' && usesArrays(value);
-    });
   }
 
   usesThread (node: Program | Statement | Expression | Block): boolean {
@@ -2476,7 +2215,8 @@ class Compiler {
       ast.body.forEach(statement => this.scanWrites(statement));
 
       for (const statement of ast.body) {
-        if (statement.type === NodeType.ImportStatement && !Object.hasOwn(extensions, statement.source)) {
+        if (statement.type === NodeType.ImportStatement && this.hasRuntimeImport(statement) &&
+            !Object.hasOwn(extensions, statement.source)) {
           // Imports compile without internal access
           await this.compileFile(this.resolveImport(statement.source));
         }
@@ -2500,31 +2240,27 @@ class Compiler {
   }
 
   async compile (filePath: string) {
-    this.loadPrograms(path.resolve(filePath));
+    const entry = this.loadModule(path.resolve(filePath));
+    this._types.check(entry);
+    if (this._types.problems.length) {
+      throw new Error(this._types.problems.map(({ file, token, message }) => {
+        return `${file}:${token.line}:${token.col}: ${message}`;
+      }).join('\n'));
+    }
 
-    const programs = Object.values(this._programs);
-    // A name shared with a scalar binding can still receive a dynamic array.
-    const lists: Record<string, boolean> = Object.create(null);
-    const destinations: string[] = [];
-    this.arrays = programs.some(program => this.usesArrays(program, lists, destinations)) ||
-      destinations.some(name => !lists[name]);
+    const runtime: Record<string, Program> = Object.create(null);
+    this.runtimePrograms(entry, runtime);
+
+    const programs = Object.values(runtime);
     this._usesThread = programs.some(program => this.usesThread(program));
     this._usesThrow = programs.some(program => this.usesThrow(program));
-    this.builtins = await this.compileFile(
-      fileURLToPath(new URL('./internal/arrays.claw', import.meta.url)), true
-    );
+    this.builtins = await this.compileFile(listRuntimePath, true);
     await this.compileFile(path.resolve(filePath));
 
     const initialize = new Scope();
 
-    if (this.arrays || this._frameSizes.length) {
-      if (this._rootCount > 200000) {
-        throw new Error('Too many array value slots for Scratch.');
-      }
-
-      await this.builtin('initialize', [
-        this.number(this._rootCount), this.number(this._frameSizes.length)
-      ], initialize, false);
+    if (this._frameSizes.length) {
+      await this.builtin('initialize', [this.number(this._frameSizes.length)], initialize, false);
     }
 
     const reset = new Scope();

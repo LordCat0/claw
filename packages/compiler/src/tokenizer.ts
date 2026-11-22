@@ -5,7 +5,7 @@ import {
 } from './types.ts';
 
 const TWO_CHAR_COMPARISONS = ['==', '!=', '<=', '>='];
-const TWO_CHAR_OPERATORS = ['+=', '-=', '*=', '/=', '%=', '++', '--', '&&', '||'];
+const TWO_CHAR_OPERATORS = ['+=', '-=', '*=', '/=', '%=', '++', '--', '&&', '||', '->'];
 
 class Tokenizer {
   tokens: Token[];
@@ -100,7 +100,7 @@ class Tokenizer {
         case '!': this.push(TokenType.NOT, ch); break;
         case '<': case '>':
           this.push(TokenType.COMPARISON, ch); break;
-        case '+': case '-': case '*': case '/': case '%':
+        case '+': case '-': case '*': case '/': case '%': case '|':
           this.push(TokenType.OPERATOR, ch); break;
         default:
           throw new Error(`Unexpected character '${ch}' at line ${this.line}, col ${this.col}`);
@@ -142,6 +142,7 @@ class Tokenizer {
   }
 
   readString (quote: string) {
+    const { line, col } = this;
     this.pos++; // skip opening quote
     this.col++;
     let value = '';
@@ -166,6 +167,10 @@ class Tokenizer {
         this.pos++; // skip closing quote
         this.col++;
         this.push(TokenType.STRING, value);
+        Object.assign(this.tokens.at(-1), {
+          line,
+          col
+        });
         return;
       }
       if (ch === '\n') {
@@ -187,7 +192,7 @@ class Tokenizer {
       this.pos++;
     }
     const value = this.source.slice(start, this.pos);
-    const type = Object.hasOwn(Keyword, value) ?
+    const type = value !== Keyword.type && Object.hasOwn(Keyword, value) ?
       TokenType.KEYWORD : TokenType.IDENTIFIER;
 
     this.push(type, value);

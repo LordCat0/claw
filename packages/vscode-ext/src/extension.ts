@@ -6,6 +6,8 @@ import type { Range } from './parser.ts';
 const language = 'claw';
 const validationDelay = 500;
 const identifier = /[a-zA-Z_][a-zA-Z_0-9]*/;
+const typeTokens = new vscode.SemanticTokensLegend(['type', 'keyword'], ['defaultLibrary']);
+const primitiveTypes = ['any', 'unknown', 'never', 'void', 'number', 'string', 'boolean'];
 const itemKinds = {
   function: vscode.CompletionItemKind.Function,
   variable: vscode.CompletionItemKind.Variable,
@@ -39,8 +41,9 @@ export function activate (context: vscode.ExtensionContext) {
       return cached.analysis;
     }
 
-    const internal = document.uri.path.endsWith('/packages/compiler/src/internal/arrays.claw');
-    const analysis = new Analysis(document.getText(), internal);
+    const internal = document.uri.path.endsWith('/packages/compiler/src/internal/lists.claw');
+    const file = document.uri.scheme === 'file' ? document.uri.fsPath : '';
+    const analysis = new Analysis(document.getText(), internal, file);
     cache.set(document, {
       version: document.version,
       analysis
@@ -106,6 +109,32 @@ export function activate (context: vscode.ExtensionContext) {
       validationTimers.delete(document);
       diagnostics.delete(document.uri);
     }),
+    vscode.workspace.onDidSaveTextDocument(saved => {
+      if (saved.languageId === language && saved.uri.scheme === 'file') {
+        for (const document of vscode.workspace.textDocuments) {
+          if (document !== saved && cache.get(document)?.analysis.types.hasModule(saved.uri.fsPath)) {
+            cache.delete(document);
+            validate(document);
+          }
+        }
+      }
+    }),
+    vscode.languages.registerDocumentSemanticTokensProvider(language, {
+      provideDocumentSemanticTokens (document) {
+        const analysis = analyze(document);
+        const tokens = new vscode.SemanticTokensBuilder(typeTokens);
+        for (const token of analysis.syntax.typeTokens) {
+          const name = String(token.value);
+          if (name === Keyword.type) {
+            tokens.push(editorRange(document, token), 'keyword');
+          } else {
+            const modifiers = primitiveTypes.includes(name) ? ['defaultLibrary'] : [];
+            tokens.push(editorRange(document, token), 'type', modifiers);
+          }
+        }
+        return tokens.build();
+      }
+    }, typeTokens),
     vscode.languages.registerCompletionItemProvider(language, {
       provideCompletionItems (document, position) {
         const analysis = analyze(document);
@@ -138,13 +167,18 @@ export function activate (context: vscode.ExtensionContext) {
     }, '.'),
     vscode.languages.registerHoverProvider(language, {
       provideHover (document, position) {
+        const analysis = analyze(document);
+        const offset = document.offsetAt(position);
+        const token = analysis.syntax.tokens.find(token => token.start <= offset && offset < token.end);
+        const type = token && analysis.types.hovers.get(token);
         const symbol = symbolAt(document, position);
-        if (symbol) {
-          const contents = new vscode.MarkdownString().appendCodeblock(describe(symbol), language);
-          if (symbol.origin) {
+        if (type || symbol) {
+          const signature = type ? `${token.value}: ${analysis.types.describe(type)}` : describe(symbol);
+          const contents = new vscode.MarkdownString().appendCodeblock(signature, 'typescript');
+          if (symbol?.origin) {
             contents.appendText(symbol.origin);
           }
-          return new vscode.Hover(contents);
+          return new vscode.Hover(contents, token && editorRange(document, token));
         }
       }
     }),

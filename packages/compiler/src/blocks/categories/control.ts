@@ -18,6 +18,7 @@ export default {
     stop: {
       kind: 'function',
       blockType: 'command',
+      resultType: 'never',
       args: [],
       create: () => ({
         opcode: 'control_stop',
@@ -51,6 +52,7 @@ export default {
     stop: {
       kind: 'function',
       blockType: 'command',
+      resultType: 'never',
       args: [],
       create: () => ({
         opcode: 'control_stop',

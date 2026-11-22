@@ -26,6 +26,21 @@
     "vscode:prepublish": "npm run build"
   },
   "contributes": {
+    "configurationDefaults": {
+      "[claw]": {
+        "editor.semanticHighlighting.enabled": true
+      }
+    },
+    "semanticTokenScopes": [
+      {
+        "language": "claw",
+        "scopes": {
+          "type": ["entity.name.type.js"],
+          "type.defaultLibrary": ["support.type.primitive.js"],
+          "keyword": ["storage.type.js"]
+        }
+      }
+    ],
     "languages": [
       {
         "id": "claw",

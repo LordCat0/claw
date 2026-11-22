@@ -4,6 +4,13 @@
   "patterns": [
     { "include": "#comments" },
     { "include": "#strings" },
+    {
+      "match": "\\b(type)\\s+([a-zA-Z_]\\w*)\\s*(?==)",
+      "captures": {
+        "1": { "name": "storage.type.js" },
+        "2": { "name": "entity.name.type.js" }
+      }
+    },
     { "include": "#function" },
     {
       "match": "\\b(var)\\s+([a-zA-Z_]\\w*)(?=\\s*=\\s*function\\b)",

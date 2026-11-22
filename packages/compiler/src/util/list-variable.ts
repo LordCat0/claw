@@ -2,7 +2,6 @@ import type { ScratchInput, VariableBinding } from '../types.ts';
 
 const listVariable = (list: [string, string], index: ScratchInput): VariableBinding => ({
   kind: 'variable',
-  scalar: true,
   get: {
     kind: 'function',
     blockType: 'reporter',

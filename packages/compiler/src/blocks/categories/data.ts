@@ -49,6 +49,7 @@ export default {
         contents: {
           kind: 'function',
           blockType: 'reporter',
+          resultType: 'string',
           args: ['list'],
           create: ({ fields }) => ({
             opcode: 'data_listcontents',
@@ -143,6 +144,7 @@ export default {
         indexOf: {
           kind: 'function',
           blockType: 'reporter',
+          resultType: 'number',
           args: ['list', 10],
           create: ({ fields, inputs }) => ({
             opcode: 'data_itemnumoflist',
@@ -157,6 +159,7 @@ export default {
         length: {
           kind: 'function',
           blockType: 'reporter',
+          resultType: 'number',
           args: ['list'],
           create: ({ fields }) => ({
             opcode: 'data_lengthoflist',
@@ -168,6 +171,7 @@ export default {
         contains: {
           kind: 'function',
           blockType: 'reporter',
+          resultType: 'boolean',
           args: ['list', 10],
           create: ({ fields, inputs }) => ({
             opcode: 'data_listcontainsitem',

@@ -160,6 +160,7 @@ export default {
       get: {
         kind: 'function',
         blockType: 'reporter',
+        resultType: 'number',
         args: [],
         create: () => ({
           opcode: 'looks_size'

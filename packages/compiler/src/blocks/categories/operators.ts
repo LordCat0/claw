@@ -5,6 +5,7 @@ export default {
     random: {
       kind: 'function',
       blockType: 'reporter',
+      resultType: 'number',
       args: [4, 4],
       create: ({ inputs }) => ({
         opcode: 'operator_random',
@@ -17,6 +18,7 @@ export default {
     round: {
       kind: 'function',
       blockType: 'reporter',
+      resultType: 'number',
       args: [4],
       create: ({ inputs }) => ({
         opcode: 'operator_round',
@@ -28,6 +30,7 @@ export default {
     calculate: {
       kind: 'function',
       blockType: 'reporter',
+      resultType: 'number',
       args: ['field', 4],
       create: ({ fields, inputs }) => ({
         opcode: 'operator_mathop',
@@ -44,6 +47,7 @@ export default {
     letterAt: {
       kind: 'function',
       blockType: 'reporter',
+      resultType: 'string',
       args: [10, 6],
       create: ({ inputs }) => ({
         opcode: 'operator_letter_of',
@@ -56,6 +60,7 @@ export default {
     length: {
       kind: 'function',
       blockType: 'reporter',
+      resultType: 'number',
       args: [10],
       create: ({ inputs }) => ({
         opcode: 'operator_length',
@@ -67,6 +72,7 @@ export default {
     contains: {
       kind: 'function',
       blockType: 'reporter',
+      resultType: 'boolean',
       args: [10, 10],
       create: ({ inputs }) => ({
         opcode: 'operator_contains',

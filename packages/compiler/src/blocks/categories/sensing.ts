@@ -5,6 +5,7 @@ export default {
     touching: {
       kind: 'function',
       blockType: 'reporter',
+      resultType: 'boolean',
       args: [10],
       create: ({ inputs, fields }, compiler) => ({
         opcode: 'sensing_touchingobject',
@@ -18,6 +19,7 @@ export default {
     touchingColor: {
       kind: 'function',
       blockType: 'reporter',
+      resultType: 'boolean',
       args: [9],
       create: ({ inputs }) => ({
         opcode: 'sensing_touchingcolor',
@@ -29,6 +31,7 @@ export default {
     colorTouchingColor: {
       kind: 'function',
       blockType: 'reporter',
+      resultType: 'boolean',
       args: [9, 9],
       create: ({ inputs }) => ({
         opcode: 'sensing_coloristouchingcolor',
@@ -41,6 +44,7 @@ export default {
     distanceTo: {
       kind: 'function',
       blockType: 'reporter',
+      resultType: 'number',
       args: [10],
       create: ({ inputs, fields }, compiler) => ({
         opcode: 'sensing_distanceto',
@@ -80,6 +84,7 @@ export default {
       get: {
         kind: 'function',
         blockType: 'reporter',
+        resultType: 'string',
         args: [],
         create: () => ({
           opcode: 'sensing_answer'
@@ -89,6 +94,7 @@ export default {
     keyIsDown: {
       kind: 'function',
       blockType: 'reporter',
+      resultType: 'boolean',
       args: [10],
       create: ({ inputs, fields }, compiler) => ({
         opcode: 'sensing_keypressed',
@@ -103,6 +109,7 @@ export default {
         isDown: {
           kind: 'function',
           blockType: 'reporter',
+          resultType: 'boolean',
           args: [],
           create: () => ({
             opcode: 'sensing_mousedown'
@@ -113,6 +120,7 @@ export default {
           get: {
             kind: 'function',
             blockType: 'reporter',
+            resultType: 'number',
             args: [],
             create: () => ({
               opcode: 'sensing_mousex'
@@ -124,6 +132,7 @@ export default {
           get: {
             kind: 'function',
             blockType: 'reporter',
+            resultType: 'number',
             args: [],
             create: () => ({
               opcode: 'sensing_mousey'
@@ -137,6 +146,7 @@ export default {
       get: {
         kind: 'function',
         blockType: 'reporter',
+        resultType: 'number',
         args: [],
         create: () => ({
           opcode: 'sensing_loudness'
@@ -146,6 +156,7 @@ export default {
     isLoud: {
       kind: 'function',
       blockType: 'reporter',
+      resultType: 'boolean',
       args: [],
       create: () => ({
         opcode: 'sensing_loud'
@@ -156,6 +167,7 @@ export default {
       get: {
         kind: 'function',
         blockType: 'reporter',
+        resultType: 'number',
         args: [],
         create: () => ({
           opcode: 'sensing_timer'
@@ -187,6 +199,7 @@ export default {
     current: {
       kind: 'function',
       blockType: 'reporter',
+      resultType: 'number',
       args: ['field'],
       create: ({ fields }) => ({
         opcode: 'sensing_current',
@@ -200,6 +213,7 @@ export default {
       get: {
         kind: 'function',
         blockType: 'reporter',
+        resultType: 'number',
         args: [],
         create: () => ({
           opcode: 'sensing_dayssince2000'
@@ -211,6 +225,7 @@ export default {
       get: {
         kind: 'function',
         blockType: 'reporter',
+        resultType: 'string',
         args: [],
         create: () => ({
           opcode: 'sensing_username'

@@ -49,17 +49,7 @@ class CallFrame {
   }
 
   variable (): VariableBinding {
-    const slot = ++this._slots;
-    const variable = listVariable(this._compiler.list('$frames'), this.index(slot));
-    variable.scalar = false;
-
-    if (this._compiler.arrays) {
-      variable.reference = listVariable(
-        this._compiler.list('$locals'), this.index(slot)
-      );
-    }
-
-    return variable;
+    return listVariable(this._compiler.list('$frames'), this.index(++this._slots));
   }
 
   async allocate (scope: Scope) {
@@ -67,24 +57,14 @@ class CallFrame {
   }
 
   readResult (index: ScratchInput): ScratchInput {
-    const list = this._compiler.list('$frames');
-    const value = this._compiler.reporter('data_itemoflist', {
+    return this._compiler.reporter('data_itemoflist', {
       INDEX: this.index(1, index)
-    }, { LIST: list });
-
-    if (this._compiler.arrays && !this.result.scalar) {
-      const reference = this._compiler.read(
-        listVariable(this._compiler.list('$locals'), this.index(1, index))
-      );
-      this._compiler.tagArray(value, reference);
-    }
-
-    return value;
+    }, { LIST: this._compiler.list('$frames') });
   }
 
   async release (scope: Scope, index: ScratchInput) {
     // Threads stopped from outside can hold frames until the next project start
-    await this._compiler.builtin('releaseFrame', [index, [1, this._bucket], [1, this._size]], scope, false);
+    await this._compiler.builtin('releaseFrame', [index, [1, this._bucket]], scope, false);
   }
 
   finalize () {

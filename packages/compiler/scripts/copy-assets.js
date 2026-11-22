@@ -1,4 +1,10 @@
-import { cpSync } from 'node:fs';
+import { cpSync, rmSync } from 'node:fs';
 
-cpSync('src/assets', 'dist/src/assets', { recursive: true });
-cpSync('src/internal', 'dist/src/internal', { recursive: true });
+for (const directory of ['assets', 'internal']) {
+  const destination = `dist/src/${directory}`;
+  rmSync(destination, {
+    recursive: true,
+    force: true
+  });
+  cpSync(`src/${directory}`, destination, { recursive: true });
+}
