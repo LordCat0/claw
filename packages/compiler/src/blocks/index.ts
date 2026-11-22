@@ -9,6 +9,7 @@ import data from './categories/data.ts';
 import pen from './extensions/pen.ts';
 import music from './extensions/music.ts';
 import videoSensing from './extensions/videoSensing.ts';
+import faceSensing from './extensions/faceSensing.ts';
 import text2speech from './extensions/text2speech.ts';
 import translate from './extensions/translate.ts';
 import microbit from './extensions/microbit.ts';
@@ -61,6 +62,7 @@ export const extensions: Record<string, Bindings> = {
   pen,
   music,
   videoSensing,
+  faceSensing,
   text2speech,
   translate,
   microbit,

@@ -417,7 +417,8 @@ class Compiler {
       'sensing_coloristouchingcolor',
       'sensing_keypressed',
       'sensing_mousedown',
-      'sensing_loud'
+      'sensing_loud',
+      'faceSensing_faceIsDetected'
     ].includes(this.root.blocks[id].opcode);
   }
 
