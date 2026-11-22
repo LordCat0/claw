@@ -11,7 +11,10 @@ export default {
         opcode: 'sensing_touchingobject',
         inputs: {
           TOUCHINGOBJECTMENU: compiler.menu(
-            'sensing_touchingobjectmenu', 'TOUCHINGOBJECTMENU', fields[0], inputs[0]
+            'sensing_touchingobjectmenu',
+            'TOUCHINGOBJECTMENU',
+            fields[0],
+            inputs[0]
           )
         }
       })
@@ -50,7 +53,10 @@ export default {
         opcode: 'sensing_distanceto',
         inputs: {
           DISTANCETOMENU: compiler.menu(
-            'sensing_distancetomenu', 'DISTANCETOMENU', fields[0], inputs[0]
+            'sensing_distancetomenu',
+            'DISTANCETOMENU',
+            fields[0],
+            inputs[0]
           )
         }
       })
@@ -99,7 +105,12 @@ export default {
       create: ({ inputs, fields }, compiler) => ({
         opcode: 'sensing_keypressed',
         inputs: {
-          KEY_OPTION: compiler.menu('sensing_keyoptions', 'KEY_OPTION', fields[0], inputs[0])
+          KEY_OPTION: compiler.menu(
+            'sensing_keyoptions',
+            'KEY_OPTION',
+            fields[0],
+            inputs[0]
+          )
         }
       })
     },

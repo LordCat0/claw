@@ -21,7 +21,12 @@ export default {
     create: ({ inputs, fields, bodies }, compiler) => ({
       opcode: 'makeymakey_whenCodePressed',
       inputs: {
-        SEQUENCE: compiler.menu('makeymakey_menu_SEQUENCE', 'SEQUENCE', fields[0], inputs[0])
+        SEQUENCE: compiler.menu(
+          'makeymakey_menu_SEQUENCE',
+          'SEQUENCE',
+          fields[0],
+          inputs[0]
+        )
       },
       topLevel: true,
       next: bodies[1]

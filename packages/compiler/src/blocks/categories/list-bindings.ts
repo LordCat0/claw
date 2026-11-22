@@ -21,7 +21,7 @@ export const internals: Bindings = {
   }
 };
 
-export const listMethods: Record<string, [number, number]> = {
+export const listMethods: Record<string, [minimum: number, maximum: number]> = {
   at: [1, 1],
   push: [0, Infinity],
   pop: [0, 0],

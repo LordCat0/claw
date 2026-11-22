@@ -6,6 +6,29 @@ import {
 
 const TWO_CHAR_COMPARISONS = ['==', '!=', '<=', '>='];
 const TWO_CHAR_OPERATORS = ['+=', '-=', '*=', '/=', '%=', '++', '--', '&&', '||', '->'];
+const SINGLE_CHAR_TOKENS: Record<string, TokenType> = {
+  '(': TokenType.LPAREN,
+  ')': TokenType.RPAREN,
+  '{': TokenType.LBRACE,
+  '}': TokenType.RBRACE,
+  '[': TokenType.LBRACKET,
+  ']': TokenType.RBRACKET,
+  ';': TokenType.SEMICOLON,
+  ',': TokenType.COMMA,
+  '.': TokenType.DOT,
+  '?': TokenType.QUESTION,
+  ':': TokenType.COLON,
+  '=': TokenType.EQUALS,
+  '!': TokenType.NOT,
+  '<': TokenType.COMPARISON,
+  '>': TokenType.COMPARISON,
+  '+': TokenType.OPERATOR,
+  '-': TokenType.OPERATOR,
+  '*': TokenType.OPERATOR,
+  '/': TokenType.OPERATOR,
+  '%': TokenType.OPERATOR,
+  '|': TokenType.OPERATOR
+};
 
 class Tokenizer {
   tokens: Token[];
@@ -30,87 +53,70 @@ class Tokenizer {
     this.source = script;
 
     while (this.pos < this.source.length) {
-      const ch = this.source[this.pos];
+      const character = this.source[this.pos];
+      const next = this.source[this.pos + 1];
 
-      // Skip whitespace
-      if (/\s/.test(ch)) {
-        if (ch === '\n') {
-          this.line++;
-          this.col = 1;
-        } else {
-          this.col++;
-        }
-        this.pos++;
+      if (/\s/.test(character)) {
+        this.advancePosition(character);
         continue;
       }
 
-      // Skip line comments
-      if (ch === '/' && this.source[this.pos + 1] === '/') {
+      if (character === '/' && next === '/') {
         this.skipLineComment();
         continue;
       }
 
-      // Skip block comments
-      if (ch === '/' && this.source[this.pos + 1] === '*') {
+      if (character === '/' && next === '*') {
         this.skipBlockComment();
         continue;
       }
 
-      // Numbers
-      if (/[0-9]/.test(ch) || (ch === '.' && /[0-9]/.test(this.source[this.pos + 1]))) {
+      if (/[0-9]/.test(character) || (character === '.' && /[0-9]/.test(next))) {
         this.readNumber();
         continue;
       }
 
-      // Strings
-      if (ch === '"' || ch === "'") {
-        this.readString(ch);
+      if (character === '"' || character === "'") {
+        this.readString(character);
         continue;
       }
 
-      // Identifiers and keywords
-      if (/[a-zA-Z_]/.test(ch)) {
+      if (/[a-zA-Z_]/.test(character)) {
         this.readIdentifier();
         continue;
       }
 
-      const operator = ch + this.source[this.pos + 1];
-      const comparison = TWO_CHAR_COMPARISONS.includes(operator);
-      if (comparison || TWO_CHAR_OPERATORS.includes(operator)) {
-        this.push(comparison ? TokenType.COMPARISON : TokenType.OPERATOR, operator);
+      const operator = character + next;
+      const isComparison = TWO_CHAR_COMPARISONS.includes(operator);
+      if (isComparison || TWO_CHAR_OPERATORS.includes(operator)) {
+        this.push(isComparison ? TokenType.COMPARISON : TokenType.OPERATOR, operator);
         this.pos += 2;
         this.col += 2;
         continue;
       }
 
-      // Single character tokens
-      switch (ch) {
-        case '(': this.push(TokenType.LPAREN, ch); break;
-        case ')': this.push(TokenType.RPAREN, ch); break;
-        case '{': this.push(TokenType.LBRACE, ch); break;
-        case '}': this.push(TokenType.RBRACE, ch); break;
-        case '[': this.push(TokenType.LBRACKET, ch); break;
-        case ']': this.push(TokenType.RBRACKET, ch); break;
-        case ';': this.push(TokenType.SEMICOLON, ch); break;
-        case ',': this.push(TokenType.COMMA, ch); break;
-        case '.': this.push(TokenType.DOT, ch); break;
-        case '?': this.push(TokenType.QUESTION, ch); break;
-        case ':': this.push(TokenType.COLON, ch); break;
-        case '=': this.push(TokenType.EQUALS, ch); break;
-        case '!': this.push(TokenType.NOT, ch); break;
-        case '<': case '>':
-          this.push(TokenType.COMPARISON, ch); break;
-        case '+': case '-': case '*': case '/': case '%': case '|':
-          this.push(TokenType.OPERATOR, ch); break;
-        default:
-          throw new Error(`Unexpected character '${ch}' at line ${this.line}, col ${this.col}`);
+      const type = SINGLE_CHAR_TOKENS[character];
+      if (!type) {
+        throw new Error(`Unexpected character '${character}' at line ${this.line}, col ${this.col}`);
       }
+
+      this.push(type, character);
       this.pos++;
       this.col++;
     }
 
     this.push(TokenType.EOF, null);
     return this.tokens;
+  }
+
+  private advancePosition (character: string) {
+    this.pos++;
+    if (character === '\n') {
+      this.line++;
+      this.col = 1;
+    } else {
+      this.col++;
+    }
   }
 
   push (type: TokenType, value: Token['value']) {
@@ -124,13 +130,13 @@ class Tokenizer {
 
   readNumber () {
     const start = this.pos;
-    let hasDot = false;
+    let hasDecimalPoint = false;
     while (this.pos < this.source.length) {
-      const ch = this.source[this.pos];
-      if (ch === '.' && !hasDot) {
-        hasDot = true;
+      const character = this.source[this.pos];
+      if (character === '.' && !hasDecimalPoint) {
+        hasDecimalPoint = true;
         this.pos++;
-      } else if (/[0-9]/.test(ch)) {
+      } else if (/[0-9]/.test(character)) {
         this.pos++;
       } else {
         break;
@@ -147,23 +153,25 @@ class Tokenizer {
     this.col++;
     let value = '';
     while (this.pos < this.source.length) {
-      const ch = this.source[this.pos];
-      if (ch === '\\') {
+      const character = this.source[this.pos];
+      if (character === '\\') {
         this.pos++;
-        const esc = this.source[this.pos];
-        switch (esc) {
-          case 'n': value += '\n'; break;
-          case 't': value += '\t'; break;
-          case '\\': value += '\\'; break;
-          case "'": value += "'"; break;
-          case '"': value += '"'; break;
-          default: value += esc;
+        const escaped = this.source[this.pos];
+        switch (escaped) {
+          case 'n':
+            value += '\n';
+            break;
+          case 't':
+            value += '\t';
+            break;
+          default:
+            value += escaped;
         }
         this.pos++;
         this.col += 2;
         continue;
       }
-      if (ch === quote) {
+      if (character === quote) {
         this.pos++; // skip closing quote
         this.col++;
         this.push(TokenType.STRING, value);
@@ -173,10 +181,10 @@ class Tokenizer {
         });
         return;
       }
-      if (ch === '\n') {
+      if (character === '\n') {
         throw new Error(`Unterminated string at line ${this.line}, col ${this.col}`);
       }
-      value += ch;
+      value += character;
       this.pos++;
       this.col++;
     }
@@ -192,10 +200,9 @@ class Tokenizer {
       this.pos++;
     }
     const value = this.source.slice(start, this.pos);
-    const type = value !== Keyword.type && Object.hasOwn(Keyword, value) ?
-      TokenType.KEYWORD : TokenType.IDENTIFIER;
+    const isKeyword = value !== Keyword.type && Object.hasOwn(Keyword, value);
 
-    this.push(type, value);
+    this.push(isKeyword ? TokenType.KEYWORD : TokenType.IDENTIFIER, value);
     this.col += value.length;
   }
 
@@ -214,13 +221,7 @@ class Tokenizer {
         this.col += 2;
         return;
       }
-      if (this.source[this.pos] === '\n') {
-        this.line++;
-        this.col = 1;
-      } else {
-        this.col++;
-      }
-      this.pos++;
+      this.advancePosition(this.source[this.pos]);
     }
     throw new Error(`Unterminated block comment at line ${this.line}, col ${this.col}`);
   }

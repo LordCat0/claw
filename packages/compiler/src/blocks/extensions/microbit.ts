@@ -76,7 +76,10 @@ export default {
       opcode: 'microbit_whenTilted',
       inputs: {
         DIRECTION: compiler.menu(
-          'microbit_menu_tiltDirectionAny', 'tiltDirectionAny', fields[0], inputs[0]
+          'microbit_menu_tiltDirectionAny',
+          'tiltDirectionAny',
+          fields[0],
+          inputs[0]
         )
       },
       topLevel: true,
@@ -91,7 +94,10 @@ export default {
       opcode: 'microbit_isTilted',
       inputs: {
         DIRECTION: compiler.menu(
-          'microbit_menu_tiltDirectionAny', 'tiltDirectionAny', fields[0], inputs[0]
+          'microbit_menu_tiltDirectionAny',
+          'tiltDirectionAny',
+          fields[0],
+          inputs[0]
         )
       }
     })
@@ -104,7 +110,10 @@ export default {
       opcode: 'microbit_getTiltAngle',
       inputs: {
         DIRECTION: compiler.menu(
-          'microbit_menu_tiltDirection', 'tiltDirection', fields[0], inputs[0]
+          'microbit_menu_tiltDirection',
+          'tiltDirection',
+          fields[0],
+          inputs[0]
         )
       }
     })

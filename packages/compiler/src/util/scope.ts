@@ -55,7 +55,7 @@ class Scope {
 
   defineVariable (name: string, id: string, constant = false) {
     if (this.frame) {
-      const variable = this.frame.variable();
+      const variable = this.frame.allocateSlot();
       this.define(name, variable);
 
       if (constant) {
@@ -107,7 +107,7 @@ class Scope {
     return variable;
   }
 
-  defineParam (name: string, parameter: string) {
+  defineParameter (name: string, parameter: string) {
     const variable: VariableBinding = {
       kind: 'variable',
       get: {

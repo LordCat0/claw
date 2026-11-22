@@ -13,63 +13,68 @@ class CallFrame {
   canStop: boolean;
   canThrow: boolean;
   private _compiler: Compiler;
-  private _slots: number;
-  private _bucket: [number, string];
-  private _size: [number, string];
+  private _slotCount: number;
+  private _bucketInput: [number, string];
+  private _sizeInput: [number, string];
 
   constructor (compiler: Compiler, canStop: boolean, canThrow: boolean) {
     this._compiler = compiler;
     this.canStop = canStop;
     this.canThrow = canThrow;
     this.parameter = `$frame@${uid()}`;
-    this._slots = 0;
-    this._bucket = [4, '0'];
-    this._size = [4, '0'];
-    this.result = this.variable();
+    this._slotCount = 0;
+    this._bucketInput = [4, '0'];
+    this._sizeInput = [4, '0'];
+    this.result = this.allocateSlot();
   }
 
-  index (offset: number, base?: ScratchInput): ScratchInput {
-    const frame = base || this._compiler.reporter('argument_reporter_string_number', {}, {
+  private slotIndex (offset: number, frameIndex?: ScratchInput): ScratchInput {
+    const index = frameIndex || this._compiler.reporter('argument_reporter_string_number', {}, {
       VALUE: [this.parameter, null]
     });
 
     if (offset === 0) {
-      return frame;
+      return index;
     }
 
     return this._compiler.reporter('operator_add', {
-      NUM1: frame,
+      NUM1: index,
       NUM2: this._compiler.number(offset)
     });
   }
 
-  exitStatus (base?: ScratchInput) {
+  exitStatus (frameIndex?: ScratchInput) {
     // An allocated frame can use its free-list link to record how it exits
-    return listVariable(this._compiler.list('$frames'), this.index(0, base));
+    return listVariable(this._compiler.list('$frames'), this.slotIndex(0, frameIndex));
   }
 
-  variable (): VariableBinding {
-    return listVariable(this._compiler.list('$frames'), this.index(++this._slots));
+  allocateSlot (): VariableBinding {
+    return listVariable(this._compiler.list('$frames'), this.slotIndex(++this._slotCount));
   }
 
   async allocate (scope: Scope) {
-    return this._compiler.builtin('allocateFrame', [[1, this._bucket], [1, this._size]], scope);
+    return this._compiler.builtin(
+      'allocateFrame',
+      [[1, this._bucketInput], [1, this._sizeInput]],
+      scope
+    );
   }
 
-  readResult (index: ScratchInput, offset = 0): ScratchInput {
+  readResult (frameIndex: ScratchInput, offset = 0): ScratchInput {
     return this._compiler.reporter('data_itemoflist', {
-      INDEX: this.index(1 + offset, index)
+      INDEX: this.slotIndex(1 + offset, frameIndex)
     }, { LIST: this._compiler.list('$frames') });
   }
 
-  async release (scope: Scope, index: ScratchInput) {
+  async release (scope: Scope, frameIndex: ScratchInput) {
     // Threads stopped from outside can hold frames until the next project start
-    await this._compiler.builtin('releaseFrame', [index, [1, this._bucket]], scope, false);
+    await this._compiler.builtin('releaseFrame', [frameIndex, [1, this._bucketInput]], scope, false);
   }
 
   finalize () {
-    this._bucket[1] = String(this._compiler.registerFrame(this._slots));
-    this._size[1] = String(this._slots);
+    // Recursive calls share these inputs before the frame size is known.
+    this._bucketInput[1] = String(this._compiler.registerFrame(this._slotCount));
+    this._sizeInput[1] = String(this._slotCount);
   }
 }
 

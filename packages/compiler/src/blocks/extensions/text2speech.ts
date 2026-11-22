@@ -30,7 +30,12 @@ export default {
     create: ({ inputs, fields }, compiler) => ({
       opcode: 'text2speech_setLanguage',
       inputs: {
-        LANGUAGE: compiler.menu('text2speech_menu_languages', 'languages', fields[0], inputs[0])
+        LANGUAGE: compiler.menu(
+          'text2speech_menu_languages',
+          'languages',
+          fields[0],
+          inputs[0]
+        )
       }
     })
   }

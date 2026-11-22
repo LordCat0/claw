@@ -53,7 +53,8 @@ export default {
           CLONE_OPTION: compiler.menu(
             'control_create_clone_of_menu',
             'CLONE_OPTION',
-            fields[0], inputs[0]
+            fields[0],
+            inputs[0]
           )
         }
       })

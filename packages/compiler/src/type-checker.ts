@@ -105,7 +105,7 @@ const primitives: Primitive[] = [
   'string',
   'boolean'
 ];
-const utilities: Record<string, number> = {
+const utilityArity: Record<string, number> = {
   Array: 1,
   ReturnType: 1,
   NonNullable: 1,
@@ -115,6 +115,7 @@ const utilities: Record<string, number> = {
   Pick: 2
 };
 
+// A statement can finish in several ways depending on which branch runs.
 const enum Completion {
   Next = 1,
   Break = 2,
@@ -166,7 +167,7 @@ class TypeChecker {
     };
     this.modules[source.file] = module;
 
-    this.visitBody(source.program.body, this.child(this.builtins), module);
+    this.checkStatements(source.program.body, this.child(this.builtins), module);
     for (const alias of Object.values(module.aliases)) {
       alias();
     }
@@ -384,7 +385,7 @@ class TypeChecker {
     }
   }
 
-  assignable (actual: ValueType, expected: ValueType): boolean {
+  isAssignable (actual: ValueType, expected: ValueType): boolean {
     if (structType(actual) || structType(expected)) {
       return actual === expected || actual === 'never';
     }
@@ -399,10 +400,10 @@ class TypeChecker {
       return true;
     }
     if (typeof actual === 'object' && actual.kind === 'union') {
-      return actual.members.every(member => this.assignable(member, expected));
+      return actual.members.every(member => this.isAssignable(member, expected));
     }
     if (typeof expected === 'object' && expected.kind === 'union') {
-      return expected.members.some(member => this.assignable(actual, member));
+      return expected.members.some(member => this.isAssignable(actual, member));
     }
     if (typeof actual === 'object' && actual.kind === 'literal') {
       return this.primitive(actual.value) === expected ||
@@ -416,41 +417,42 @@ class TypeChecker {
       return false;
     }
     if (actual.kind === 'array' && expected.kind === 'array') {
-      return this.assignable(actual.element, expected.element);
+      return this.isAssignable(actual.element, expected.element);
     }
     if (actual.kind === 'function' && expected.kind === 'function') {
       return actual.params.length === expected.params.length &&
         expected.params.every((param, index) =>
-          this.assignable(param.type, actual.params[index].type)
+          this.isAssignable(param.type, actual.params[index].type)
         ) &&
-        this.assignable(actual.result(), expected.result());
+        this.isAssignable(actual.result(), expected.result());
     }
     if (actual.kind === 'object' && expected.kind === 'object') {
       return Object.entries(expected.members).every(([name, type]) => {
         return Object.hasOwn(actual.members, name) &&
-          this.assignable(actual.members[name], type);
+          this.isAssignable(actual.members[name], type);
       });
     }
     return false;
   }
 
-  require (
+  requireAssignable (
     actual: ValueType,
     expected: ValueType,
     node: object,
     module: CheckedModule,
     context = ''
   ) {
-    if (!this.assignable(actual, expected)) {
+    if (!this.isAssignable(actual, expected)) {
       this.report(
         module,
         node,
-        `${context}Type '${this.describe(actual)}' is not assignable to type '${this.describe(expected)}'.`
+        `${context}Type '${this.describe(actual)}' ` +
+        `is not assignable to type '${this.describe(expected)}'.`
       );
     }
   }
 
-  annotation (syntax: TypeSyntax, scope: TypeScope, module: CheckedModule): ValueType {
+  resolveAnnotation (syntax: TypeSyntax, scope: TypeScope, module: CheckedModule): ValueType {
     const token = module.source.locations.get(syntax);
     switch (syntax.kind) {
       case 'literal':
@@ -458,18 +460,18 @@ class TypeChecker {
       case 'array':
         return {
           kind: 'array',
-          element: this.annotation(syntax.element, scope, module)
+          element: this.resolveAnnotation(syntax.element, scope, module)
         };
       case 'union':
         return this.union(syntax.members.map(member =>
-          this.annotation(member, scope, module)
+          this.resolveAnnotation(member, scope, module)
         ));
       case 'function': {
         const params = syntax.params.map(param => ({
           name: param.name,
-          type: this.annotation(param.annotation, scope, module)
+          type: this.resolveAnnotation(param.annotation, scope, module)
         }));
-        const result = this.annotation(syntax.result, scope, module);
+        const result = this.resolveAnnotation(syntax.result, scope, module);
         return {
           kind: 'function',
           params,
@@ -479,17 +481,17 @@ class TypeChecker {
       case 'reference': {
         const { name, args } = syntax;
         let type: ValueType = 'any';
-        if (Object.hasOwn(utilities, name)) {
-          if (args.length !== utilities[name]) {
+        if (Object.hasOwn(utilityArity, name)) {
+          if (args.length !== utilityArity[name]) {
             this.report(
               module,
               syntax,
-              `Type '${name}' expects ${utilities[name]} type arguments.`
+              `Type '${name}' expects ${utilityArity[name]} type arguments.`
             );
           } else {
-            type = this.utility(
+            type = this.resolveUtilityType(
               name,
-              args.map(arg => this.annotation(arg, scope, module)),
+              args.map(arg => this.resolveAnnotation(arg, scope, module)),
               syntax,
               module
             );
@@ -520,7 +522,7 @@ class TypeChecker {
     }
   }
 
-  utility (
+  resolveUtilityType (
     name: string,
     [type, keys]: ValueType[],
     syntax: TypeSyntax,
@@ -539,7 +541,7 @@ class TypeChecker {
           return 'any';
         }
         return this.union(this.members(type).filter(member => {
-          return this.assignable(
+          return this.isAssignable(
             member,
             name === 'NonNullable' ? 'void' : keys
           ) === (name === 'Extract');
@@ -559,11 +561,11 @@ class TypeChecker {
       }
       case 'Omit':
       case 'Pick':
-        if (!this.assignable(keys, 'string')) {
+        if (!this.isAssignable(keys, 'string')) {
           this.report(module, syntax, `${name} requires string keys.`);
         } else if (typeof type === 'object' && type.kind === 'object') {
           if (name === 'Pick') {
-            this.require(
+            this.requireAssignable(
               keys,
               this.union(Object.keys(type.members).map(value => ({
                 kind: 'literal',
@@ -577,7 +579,7 @@ class TypeChecker {
             kind: 'object',
             members: Object.fromEntries(
               Object.entries(type.members).filter(([value]) => {
-                return this.assignable({
+                return this.isAssignable({
                   kind: 'literal',
                   value
                 }, keys) === (name === 'Pick');
@@ -591,9 +593,12 @@ class TypeChecker {
     }
   }
 
-  aliases (body: Statement[], scope: TypeScope, module: CheckedModule) {
+  declareTypes (body: Statement[], scope: TypeScope, module: CheckedModule) {
     for (const statement of body) {
-      if (statement.type !== NodeType.TypeDeclaration && statement.type !== NodeType.StructDeclaration) {
+      if (
+        statement.type !== NodeType.TypeDeclaration &&
+        statement.type !== NodeType.StructDeclaration
+      ) {
         continue;
       }
 
@@ -602,7 +607,7 @@ class TypeChecker {
       if (
         scope.aliases[name] ||
         primitives.includes(name as Primitive) ||
-        Object.hasOwn(utilities, name)
+        Object.hasOwn(utilityArity, name)
       ) {
         this.report(module, statement, `Type '${name}' is already defined.`, token);
         continue;
@@ -620,7 +625,7 @@ class TypeChecker {
           resolving = true;
           type = statement.type === NodeType.StructDeclaration
             ? this.structDeclaration(statement, scope, module)
-            : this.annotation(statement.annotation, scope, module);
+            : this.resolveAnnotation(statement.annotation, scope, module);
           resolving = false;
           this.hover(token, type);
         }
@@ -629,7 +634,11 @@ class TypeChecker {
     }
   }
 
-  structDeclaration (statement: StructDeclaration, scope: TypeScope, module: CheckedModule): StructType {
+  structDeclaration (
+    statement: StructDeclaration,
+    scope: TypeScope,
+    module: CheckedModule
+  ): StructType {
     const fields: string[] = [];
     const properties: StructType['properties'] = Object.create(null);
     for (const property of statement.properties) {
@@ -639,7 +648,7 @@ class TypeChecker {
         continue;
       }
 
-      const type: ValueType = annotation ? this.annotation(annotation, scope, module) : 'any';
+      const type: ValueType = annotation ? this.resolveAnnotation(annotation, scope, module) : 'any';
       const nested = structType(type);
       const width = nested ? nested.fields.length : 1;
       const offset = fields.length;
@@ -653,7 +662,7 @@ class TypeChecker {
           fields.push(`${name}.${field}`);
         }
       } else {
-        if (!this.scalar(type)) {
+        if (!this.isScalar(type)) {
           this.report(module, property, 'Struct properties require a scalar or a single struct type.');
         }
         fields.push(name);
@@ -770,7 +779,7 @@ class TypeChecker {
     this.exports.set(statement, runtime);
   }
 
-  procedure (
+  checkProcedure (
     node: FunctionDeclaration | FunctionExpression,
     scope: TypeScope,
     module: CheckedModule,
@@ -783,7 +792,7 @@ class TypeChecker {
     const params = node.params.map((name, index) => {
       const annotation = node.paramTypes?.[index];
       const type = annotation
-        ? this.annotation(annotation, scope, module)
+        ? this.resolveAnnotation(annotation, scope, module)
         : contextual[index]?.type || 'any';
       this.hover(this.nameToken(node.body, module, index), type);
       local.values[name] = type;
@@ -793,7 +802,7 @@ class TypeChecker {
       };
     });
     const expected = node.returnType
-      ? this.annotation(node.returnType, scope, module)
+      ? this.resolveAnnotation(node.returnType, scope, module)
       : undefined;
     local.returns = {
       expected,
@@ -804,12 +813,12 @@ class TypeChecker {
     const infer = () => {
       if (!result) {
         result = expected || 'any';
-        const completion = this.visitBody(node.body.body, local, module);
+        const completion = this.checkStatements(node.body.body, local, module);
         const { values } = local.returns;
         if (completion & Completion.Next) {
           values.push('void');
           if (expected) {
-            this.require(
+            this.requireAssignable(
               'void',
               expected,
               node.returnType,
@@ -821,7 +830,7 @@ class TypeChecker {
         const struct = !expected && values.find(structType);
         if (struct) {
           for (const value of values) {
-            this.require(value, struct, node, module, 'Function return values. ');
+            this.requireAssignable(value, struct, node, module, 'Function return values. ');
           }
           result = struct;
         } else {
@@ -841,16 +850,16 @@ class TypeChecker {
     return type;
   }
 
-  visitBody (
+  checkStatements (
     body: Statement[],
     scope: TypeScope,
     module: CheckedModule,
     reachable = true
   ) {
-    this.aliases(body, scope, module);
+    this.declareTypes(body, scope, module);
     let completion = Completion.Next;
     for (const statement of body) {
-      const next = this.visit(
+      const next = this.checkStatement(
         statement,
         scope,
         module,
@@ -867,7 +876,7 @@ class TypeChecker {
     return completion;
   }
 
-  truth (expression: Expression) {
+  literalTruth (expression: Expression) {
     if (
       expression.type === NodeType.BooleanLiteral ||
       expression.type === NodeType.NumberLiteral ||
@@ -882,7 +891,7 @@ class TypeChecker {
     }
   }
 
-  visit (
+  checkStatement (
     node: Statement,
     scope: TypeScope,
     module: CheckedModule,
@@ -918,13 +927,15 @@ class TypeChecker {
         break;
       case NodeType.VarDeclaration: {
         const { name, init, annotation } = node;
-        const expected: ValueType = annotation ? this.annotation(annotation, scope, module) : undefined;
+        const expected = annotation
+          ? this.resolveAnnotation(annotation, scope, module)
+          : undefined;
         const struct = structType(expected);
         let actual: ValueType = 'any';
         if (init) {
           actual = node.list && init.type === NodeType.ArrayExpression
             ? this.listItems(init, scope, module)
-            : this.expression(init, scope, module, expected || undefined);
+            : this.checkExpression(init, scope, module, expected || undefined);
           if (!node.list && actual !== 'any' && this.element(actual)) {
             this.report(module, init, 'Use the list keyword to declare a list.');
           }
@@ -932,10 +943,10 @@ class TypeChecker {
         if (structType(actual) && !struct) {
           this.report(module, init, `Variable '${name}' requires a struct type annotation.`);
         } else if (init && expected) {
-          this.require(actual, expected, init, module);
+          this.requireAssignable(actual, expected, init, module);
         }
         if (node.list && expected) {
-          this.require(
+          this.requireAssignable(
             expected,
             {
               kind: 'array',
@@ -964,42 +975,47 @@ class TypeChecker {
         break;
       }
       case NodeType.FunctionDeclaration: {
-        const type = this.procedure(node, scope, module);
+        const type = this.checkProcedure(node, scope, module);
         scope.values[node.name] = type;
         this.hover(this.nameToken(node, module), type);
         break;
       }
       case NodeType.Assignment: {
-        const type = this.expression(node.target, scope, module);
+        const type = this.checkExpression(node.target, scope, module);
         const value = node.value.type === NodeType.ArrayExpression &&
           !node.operator && this.element(type) && this.acceptsListItems(node.target, scope)
           ? this.listItems(node.value, scope, module)
-          : this.expression(node.value, scope, module, node.operator ? undefined : structType(type));
+          : this.checkExpression(
+            node.value,
+            scope,
+            module,
+            node.operator ? undefined : structType(type)
+          );
         const assigned = node.operator
           ? this.binary(node.operator, type, value)
           : value;
 
         if (type === 'any' && node.target.type === NodeType.MemberExpression &&
-            this.structs.has(node.target.object) && !this.scalar(assigned)) {
+            this.structs.has(node.target.object) && !this.isScalar(assigned)) {
           this.report(module, node.value, 'An untyped struct property requires a scalar value.');
           break;
         }
-        this.require(assigned, type, node.value, module);
+        this.requireAssignable(assigned, type, node.value, module);
         break;
       }
       case NodeType.ExpressionStatement:
-        return this.expression(node.expression, scope, module) === 'never'
+        return this.checkExpression(node.expression, scope, module) === 'never'
           ? Completion.Exit
           : Completion.Next;
       case NodeType.Block:
-        return this.visitBody(node.body, this.child(scope), module, reachable);
+        return this.checkStatements(node.body, this.child(scope), module, reachable);
       case NodeType.ReturnStatement: {
         const returns = scope.returns;
         const value = node.value
-          ? this.expression(node.value, scope, module, structType(returns?.expected))
+          ? this.checkExpression(node.value, scope, module, structType(returns?.expected))
           : 'void';
         if (returns?.expected) {
-          this.require(
+          this.requireAssignable(
             value,
             returns.expected,
             node.value || node,
@@ -1013,19 +1029,19 @@ class TypeChecker {
         return Completion.Exit;
       }
       case NodeType.ThrowStatement:
-        this.expression(node.value, scope, module);
+        this.checkExpression(node.value, scope, module);
         return Completion.Exit;
       case NodeType.IfStatement: {
-        this.expression(node.test, scope, module);
-        const truth = this.truth(node.test);
-        const consequent = this.visit(
+        this.checkExpression(node.test, scope, module);
+        const truth = this.literalTruth(node.test);
+        const consequent = this.checkStatement(
           node.consequent,
           scope,
           module,
           reachable && truth !== false
         );
         const alternate = node.alternate
-          ? this.visit(node.alternate, scope, module, reachable && truth !== true)
+          ? this.checkStatement(node.alternate, scope, module, reachable && truth !== true)
           : Completion.Next;
         if (truth === undefined) {
           return consequent | alternate;
@@ -1033,13 +1049,13 @@ class TypeChecker {
         return truth ? consequent : alternate;
       }
       case NodeType.SwitchStatement: {
-        this.expression(node.discriminant, scope, module);
+        this.checkExpression(node.discriminant, scope, module);
         const local = this.child(scope);
         const clauses = node.cases.map(({ test, body }) => {
           if (test) {
-            this.expression(test, local, module);
+            this.checkExpression(test, local, module);
           }
-          return this.visitBody(body, local, module, reachable);
+          return this.checkStatements(body, local, module, reachable);
         });
 
         let following = Completion.Next;
@@ -1059,16 +1075,16 @@ class TypeChecker {
       case NodeType.RepeatStatement: {
         const local = node.type === NodeType.ForStatement ? this.child(scope) : scope;
         if (node.type === NodeType.ForStatement) {
-          this.visit(node.init, local, module, reachable);
+          this.checkStatement(node.init, local, module, reachable);
         }
         const test = node.type === NodeType.RepeatStatement ? node.count : node.test;
-        this.expression(test, local, module);
+        this.checkExpression(test, local, module);
         const truth = node.type === NodeType.RepeatStatement
           ? this.repeatRuns(test)
-          : this.truth(test);
-        const body = this.visit(node.body, local, module, reachable && truth !== false);
+          : this.literalTruth(test);
+        const body = this.checkStatement(node.body, local, module, reachable && truth !== false);
         if (node.type === NodeType.ForStatement) {
-          this.visit(node.update, local, module, reachable);
+          this.checkStatement(node.update, local, module, reachable);
         }
         if (truth === false) {
           return Completion.Next;
@@ -1087,8 +1103,8 @@ class TypeChecker {
           handler.values[node.parameter] = 'any';
           this.hover(this.nameToken(node, module), 'any');
         }
-        return this.visit(node.body, scope, module, reachable) |
-          this.visitBody(node.handler.body, handler, module, reachable);
+        return this.checkStatement(node.body, scope, module, reachable) |
+          this.checkStatements(node.handler.body, handler, module, reachable);
       }
       case NodeType.BreakStatement:
         return Completion.Break;
@@ -1171,26 +1187,23 @@ class TypeChecker {
     module: CheckedModule
   ): ValueType {
     const { element } = receiver;
-    const start = {
+    const firstItem = {
       push: 0,
       unshift: 0,
       insert: 1,
       splice: 2
     };
-    if (Object.hasOwn(start, property)) {
-      for (
-        let index = start[property as keyof typeof start];
-        index < args.length;
-        index++
-      ) {
-        this.require(args[index], element, node.arguments[index], module);
+    if (Object.hasOwn(firstItem, property)) {
+      const start = firstItem[property as keyof typeof firstItem];
+      for (let index = start; index < args.length; index++) {
+        this.requireAssignable(args[index], element, node.arguments[index], module);
       }
     }
 
     switch (property) {
       case 'fill':
         if (args.length) {
-          this.require(args[0], element, node.arguments[0], module);
+          this.requireAssignable(args[0], element, node.arguments[0], module);
         }
         return receiver;
       case 'at':
@@ -1225,7 +1238,7 @@ class TypeChecker {
         ) {
           const inputs: ValueType[] = [element, 'number', receiver];
           callback.params.slice(0, inputs.length).forEach((param, index) => {
-            this.require(
+            this.requireAssignable(
               inputs[index],
               param.type,
               node.arguments[0],
@@ -1235,19 +1248,22 @@ class TypeChecker {
           });
         }
 
-        if (property === 'map' || property === 'concat') {
-          const result = property === 'map'
-            ? (
-              typeof callback === 'object' && callback.kind === 'function'
-                ? callback.result()
-                : 'any'
-            )
-            : this.union([element, ...args.map(arg => this.element(arg) || 'any')]);
+        if (property === 'map') {
           return {
             kind: 'array',
-            element: result
+            element: typeof callback === 'object' && callback.kind === 'function'
+              ? callback.result()
+              : 'any'
           };
         }
+
+        if (property === 'concat') {
+          return {
+            kind: 'array',
+            element: this.union([element, ...args.map(arg => this.element(arg) || 'any')])
+          };
+        }
+
         return receiver;
       }
       default:
@@ -1273,7 +1289,7 @@ class TypeChecker {
 
   listItems (node: ArrayExpression, scope: TypeScope, module: CheckedModule): ValueType {
     const elements = node.elements.map(element => {
-      const type = this.expression(element, scope, module);
+      const type = this.checkExpression(element, scope, module);
       if (type !== 'any' && (this.element(type) || this.members(type).some(structType))) {
         this.report(module, element, 'List items must be scalar values.');
       }
@@ -1285,7 +1301,7 @@ class TypeChecker {
     };
   }
 
-  expression (
+  checkExpression (
     node: Expression,
     scope: TypeScope,
     module: CheckedModule,
@@ -1294,7 +1310,7 @@ class TypeChecker {
     let type: ValueType;
     switch (node.type) {
       case NodeType.FunctionExpression:
-        type = this.procedure(node, scope, module, expected);
+        type = this.checkProcedure(node, scope, module, expected);
         break;
       case NodeType.StructLiteral:
         type = this.structLiteral(node, scope, module, structType(expected));
@@ -1323,7 +1339,12 @@ class TypeChecker {
     return type;
   }
 
-  structLiteral (node: StructLiteral, scope: TypeScope, module: CheckedModule, type?: StructType): ValueType {
+  structLiteral (
+    node: StructLiteral,
+    scope: TypeScope,
+    module: CheckedModule,
+    type?: StructType
+  ): ValueType {
     if (!type) {
       this.report(module, node, 'A struct literal requires a struct type.');
       return 'any';
@@ -1339,11 +1360,11 @@ class TypeChecker {
         this.report(module, property, `Duplicate property '${name}'.`);
       } else {
         delete missing[name];
-        const actual = this.expression(value, scope, module, entry.type);
-        if (entry.type === 'any' && !this.scalar(actual)) {
+        const actual = this.checkExpression(value, scope, module, entry.type);
+        if (entry.type === 'any' && !this.isScalar(actual)) {
           this.report(module, value, `Property '${name}' requires a scalar value.`);
         } else {
-          this.require(actual, entry.type, value, module, `Property '${name}'. `);
+          this.requireAssignable(actual, entry.type, value, module, `Property '${name}'. `);
         }
       }
     }
@@ -1354,7 +1375,7 @@ class TypeChecker {
     return type;
   }
 
-  scalar (type: ValueType) {
+  isScalar (type: ValueType) {
     return this.members(type).every(member => typeof member === 'string' || member.kind === 'literal');
   }
 
@@ -1380,7 +1401,7 @@ class TypeChecker {
         return value || 'any';
       }
       case NodeType.UnaryExpression: {
-        const value = this.expression(node.value, scope, module);
+        const value = this.checkExpression(node.value, scope, module);
         if (node.operator === '!') {
           return 'boolean';
         }
@@ -1402,19 +1423,19 @@ class TypeChecker {
       case NodeType.BinaryExpression:
         return this.binary(
           node.operator,
-          this.expression(node.left, scope, module),
-          this.expression(node.right, scope, module)
+          this.checkExpression(node.left, scope, module),
+          this.checkExpression(node.right, scope, module)
         );
       case NodeType.ConditionalExpression: {
-        this.expression(node.test, scope, module);
-        const consequent = this.expression(node.consequent, scope, module, expected);
-        const alternate = this.expression(node.alternate, scope, module, expected);
-        const truth = this.truth(node.test);
+        this.checkExpression(node.test, scope, module);
+        const consequent = this.checkExpression(node.consequent, scope, module, expected);
+        const alternate = this.checkExpression(node.alternate, scope, module, expected);
+        const truth = this.literalTruth(node.test);
         if (truth === undefined) {
           const type = structType(consequent) || structType(alternate);
           if (type) {
-            this.require(consequent, type, node.consequent, module);
-            this.require(alternate, type, node.alternate, module);
+            this.requireAssignable(consequent, type, node.consequent, module);
+            this.requireAssignable(alternate, type, node.alternate, module);
             return type;
           }
           return this.union([consequent, alternate]);
@@ -1422,7 +1443,7 @@ class TypeChecker {
         return truth ? consequent : alternate;
       }
       case NodeType.MemberExpression: {
-        const object = this.expression(node.object, scope, module);
+        const object = this.checkExpression(node.object, scope, module);
         const member = this.member(object, node.property);
         if (!member) {
           this.report(
@@ -1434,8 +1455,8 @@ class TypeChecker {
         return member || 'any';
       }
       case NodeType.IndexExpression: {
-        const object = this.expression(node.object, scope, module);
-        this.expression(node.index, scope, module);
+        const object = this.checkExpression(node.object, scope, module);
+        this.checkExpression(node.index, scope, module);
         const element = this.element(object);
         if (!element) {
           this.report(
@@ -1447,90 +1468,95 @@ class TypeChecker {
         return element || 'any';
       }
       case NodeType.UpdateExpression: {
-        const type = this.expression(node.argument, scope, module);
-        this.require('number', type, node.argument, module);
+        const type = this.checkExpression(node.argument, scope, module);
+        this.requireAssignable('number', type, node.argument, module);
         return type;
       }
-      case NodeType.CallExpression: {
-        const { callee } = node;
-        const receiver = callee.type === NodeType.MemberExpression
-          ? this.expression(callee.object, scope, module)
-          : undefined;
-        let type: ValueType;
-        if (callee.type === NodeType.MemberExpression) {
-          const receivers = this.members(receiver);
-          if (receivers.every(member =>
-            typeof member === 'object' && member.kind === 'array'
-          )) {
-            const args = node.arguments.map(argument =>
-              callee.property === 'concat' && argument.type === NodeType.ArrayExpression
-                ? this.listItems(argument, scope, module)
-                : this.expression(argument, scope, module)
-            );
-            const result = this.union(receivers.map(member => {
-              return this.listCall(member, node, callee.property, args, module);
-            }));
-            this.hover(module.source.locations.get(callee), {
-              kind: 'function',
-              params: args.map((type, index) => ({
-                name: `arg${index + 1}`,
-                type: this.widen(type)
-              })),
-              result: () => result
-            });
-            return result;
-          }
-          type = this.member(receiver, callee.property);
-          if (!type) {
-            this.report(
-              module,
-              callee,
-              `Type '${this.describe(receiver)}' has no property '${callee.property}'.`
-            );
-            return 'any';
-          }
-          this.hover(module.source.locations.get(callee), type);
-        } else {
-          type = this.expression(callee, scope, module);
-        }
-        const params = typeof type === 'object' && type.kind === 'function' ? type.params : [];
-        const args = node.arguments.map((argument, index) =>
-          this.expression(argument, scope, module, structType(params[index]?.type))
-        );
-        return this.union(this.members(type).map(member => {
-          if (member === 'any' || member === 'never') {
-            return member;
-          }
-          if (typeof member !== 'object' || member.kind !== 'function') {
-            this.report(
-              module,
-              callee,
-              `Type '${this.describe(member)}' is not callable.`
-            );
-            return 'any';
-          }
-          if (args.length !== member.params.length) {
-            this.report(
-              module,
-              callee,
-              `Function expects ${member.params.length} arguments, got ${args.length}.`
-            );
-          }
-          member.params.forEach((param, index) => {
-            if (index < args.length) {
-              this.require(
-                args[index],
-                param.type,
-                node.arguments[index],
-                module,
-                `Argument '${param.name}'. `
-              );
-            }
-          });
-          return member.result();
-        }));
-      }
+      case NodeType.CallExpression:
+        return this.checkCall(node, scope, module);
     }
+  }
+
+  private checkCall (
+    node: CallExpression,
+    scope: TypeScope,
+    module: CheckedModule
+  ): ValueType {
+    const { callee } = node;
+    let type: ValueType;
+    if (callee.type === NodeType.MemberExpression) {
+      const receiver = this.checkExpression(callee.object, scope, module);
+      const receivers = this.members(receiver);
+      if (receivers.every(member =>
+        typeof member === 'object' && member.kind === 'array'
+      )) {
+        const args = node.arguments.map(argument =>
+          callee.property === 'concat' && argument.type === NodeType.ArrayExpression
+            ? this.listItems(argument, scope, module)
+            : this.checkExpression(argument, scope, module)
+        );
+        const result = this.union(receivers.map(member =>
+          this.listCall(member, node, callee.property, args, module)
+        ));
+        this.hover(module.source.locations.get(callee), {
+          kind: 'function',
+          params: args.map((type, index) => ({
+            name: `arg${index + 1}`,
+            type: this.widen(type)
+          })),
+          result: () => result
+        });
+        return result;
+      }
+      type = this.member(receiver, callee.property);
+      if (!type) {
+        this.report(
+          module,
+          callee,
+          `Type '${this.describe(receiver)}' has no property '${callee.property}'.`
+        );
+        return 'any';
+      }
+      this.hover(module.source.locations.get(callee), type);
+    } else {
+      type = this.checkExpression(callee, scope, module);
+    }
+    const params = typeof type === 'object' && type.kind === 'function' ? type.params : [];
+    const args = node.arguments.map((argument, index) =>
+      this.checkExpression(argument, scope, module, structType(params[index]?.type))
+    );
+    return this.union(this.members(type).map(member => {
+      if (member === 'any' || member === 'never') {
+        return member;
+      }
+      if (typeof member !== 'object' || member.kind !== 'function') {
+        this.report(
+          module,
+          callee,
+          `Type '${this.describe(member)}' is not callable.`
+        );
+        return 'any';
+      }
+      if (args.length !== member.params.length) {
+        this.report(
+          module,
+          callee,
+          `Function expects ${member.params.length} arguments, got ${args.length}.`
+        );
+      }
+      member.params.forEach((param, index) => {
+        if (index < args.length) {
+          this.requireAssignable(
+            args[index],
+            param.type,
+            node.arguments[index],
+            module,
+            `Argument '${param.name}'. `
+          );
+        }
+      });
+      return member.result();
+    }));
   }
 }
 

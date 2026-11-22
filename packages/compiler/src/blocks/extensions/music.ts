@@ -55,7 +55,12 @@ export default {
     create: ({ inputs, fields }, compiler) => ({
       opcode: 'music_setInstrument',
       inputs: {
-        INSTRUMENT: compiler.menu('music_menu_INSTRUMENT', 'INSTRUMENT', fields[0], inputs[0])
+        INSTRUMENT: compiler.menu(
+          'music_menu_INSTRUMENT',
+          'INSTRUMENT',
+          fields[0],
+          inputs[0]
+        )
       }
     })
   },

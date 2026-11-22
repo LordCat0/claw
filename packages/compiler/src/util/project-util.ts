@@ -5,43 +5,46 @@ import type {
   SpriteOptions
 } from '../types.ts';
 
-export const newSprite = (opts: SpriteOptions): Sprite => ({
-  isStage: opts.isStage ?? false,
-  name: opts.name,
-  variables: opts.variables ?? {},
-  lists: opts.lists ?? {},
-  broadcasts: opts.broadcasts ?? {},
-  blocks: opts.blocks ?? {},
-  comments: opts.comments ?? {},
-  currentCostume: opts.currentCostume ?? 0,
-  costumes: opts.costumes ?? [{
+const EMPTY_COSTUME_ID = '927d672925e7b99f7813735c484c6922';
+export const EMPTY_COSTUME_FILE = `${EMPTY_COSTUME_ID}.svg`;
+
+export const newSprite = (options: SpriteOptions): Sprite => ({
+  isStage: options.isStage ?? false,
+  name: options.name,
+  variables: options.variables ?? {},
+  lists: options.lists ?? {},
+  broadcasts: options.broadcasts ?? {},
+  blocks: options.blocks ?? {},
+  comments: options.comments ?? {},
+  currentCostume: options.currentCostume ?? 0,
+  costumes: options.costumes ?? [{
     name: '_empty',
     bitmapResolution: 1,
     dataFormat: 'svg',
-    assetId: '927d672925e7b99f7813735c484c6922',
-    md5ext: '927d672925e7b99f7813735c484c6922.svg',
+    assetId: EMPTY_COSTUME_ID,
+    md5ext: EMPTY_COSTUME_FILE,
     rotationCenterX: 30.74937882782359,
     rotationCenterY: 58.864768144346826
   }],
-  sounds: opts.sounds ?? [],
-  volume: opts.volume ?? 100,
-  layerOrder: opts.isStage ? 0 : 1,
-  tempo: opts.tempo ?? 60,
-  videoTransparency: opts.videoTransparency ?? 50,
-  videoState: opts.videoState ?? 'on',
-  textToSpeechLanguage: opts.textToSpeechLanguage ?? null
+  sounds: options.sounds ?? [],
+  volume: options.volume ?? 100,
+  layerOrder: options.isStage ? 0 : 1,
+  tempo: options.tempo ?? 60,
+  videoTransparency: options.videoTransparency ?? 50,
+  videoState: options.videoState ?? 'on',
+  textToSpeechLanguage: options.textToSpeechLanguage ?? null
 });
 
-export const newBlock = (opts: BlockOptions): ScratchBlock => ({
-  opcode: opts.opcode,
-  next: opts.next ?? null,
-  parent: opts.parent ?? null,
-  inputs: { ...opts.inputs },
-  fields: opts.fields ?? {},
-  shadow: opts.shadow ?? false,
-  topLevel: opts.topLevel ?? false,
-  mutation: opts.mutation,
-  x: opts.x ?? 0,
-  y: opts.y ?? 0
+export const newBlock = (options: BlockOptions): ScratchBlock => ({
+  opcode: options.opcode,
+  next: options.next ?? null,
+  parent: options.parent ?? null,
+  inputs: { ...options.inputs },
+  fields: options.fields ?? {},
+  shadow: options.shadow ?? false,
+  topLevel: options.topLevel ?? false,
+  mutation: options.mutation,
+  x: options.x ?? 0,
+  y: options.y ?? 0
 });
 

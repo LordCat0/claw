@@ -59,8 +59,6 @@ class ASTBuilder {
     };
   }
 
-  // Helper functions
-
   current () {
     return this.tokens[this.pos];
   }
@@ -86,14 +84,14 @@ class ASTBuilder {
     return this.advance();
   }
 
-  locate<T extends object> (node: T, token: Token): T {
+  private recordLocation<T extends object> (node: T, token: Token): T {
     if (!this.locations.has(node)) {
       this.locations.set(node, token);
     }
     return node;
   }
 
-  named<T extends object> (node: T, tokens: Token[]): T {
+  private recordNameTokens<T extends object> (node: T, tokens: Token[]): T {
     this.names.set(node, tokens);
     return node;
   }
@@ -102,7 +100,7 @@ class ASTBuilder {
 
   parseStatement (): Statement {
     const token = this.current();
-    return this.locate(this.parseStatementBody(), token);
+    return this.recordLocation(this.parseStatementBody(), token);
   }
 
   parseStatementBody (): Statement {
@@ -171,26 +169,27 @@ class ASTBuilder {
   }
 
   parseSimpleStatement (): Statement {
-    const expr = this.parseExpression();
+    const expression = this.parseExpression();
     const token = this.current();
 
-    if (token.type === TokenType.EQUALS ||
-        (token.type === TokenType.OPERATOR &&
-          ['+=', '-=', '*=', '/=', '%='].includes(token.value as string))) {
+    const compound = token.type === TokenType.OPERATOR &&
+      ['+=', '-=', '*=', '/=', '%='].includes(token.value as string);
+
+    if (token.type === TokenType.EQUALS || compound) {
       this.advance();
       const value = this.parseExpression();
 
       return {
         type: NodeType.Assignment,
-        target: expr,
+        target: expression,
         value,
-        operator: token.type === TokenType.OPERATOR ? (token.value as string)[0] : undefined
+        operator: compound ? (token.value as string)[0] : undefined
       };
     }
 
     return {
       type: NodeType.ExpressionStatement,
-      expression: expr
+      expression: expression
     };
   }
 
@@ -209,7 +208,7 @@ class ASTBuilder {
       init = this.parseExpression();
     }
     this.expect(TokenType.SEMICOLON);
-    return this.named({
+    return this.recordNameTokens({
       type: NodeType.VarDeclaration,
       name: name.value as string,
       constant,
@@ -344,7 +343,7 @@ class ASTBuilder {
     this.advance();
     const name = this.expect(TokenType.IDENTIFIER);
 
-    return this.named({
+    return this.recordNameTokens({
       ...this.parseFunctionExpression(warp),
       type: NodeType.FunctionDeclaration,
       name: name.value as string
@@ -365,7 +364,7 @@ class ASTBuilder {
     }
     this.expect(TokenType.RPAREN);
     const returnType = this.parseAnnotation();
-    const body = this.named(this.parseBlock(), parameters);
+    const body = this.recordNameTokens(this.parseBlock(), parameters);
     return {
       type: NodeType.FunctionExpression,
       params: parameters.map(parameter => parameter.value as string),
@@ -401,7 +400,7 @@ class ASTBuilder {
       this.expect(TokenType.RPAREN);
     }
 
-    return this.named({
+    return this.recordNameTokens({
       type: NodeType.TryStatement,
       body,
       parameter: (parameter?.value as string) || null,
@@ -414,7 +413,9 @@ class ASTBuilder {
     const token = this.current();
 
     if (token.line !== keyword.line) {
-      throw new Error(`Unexpected line break after 'throw' at line ${keyword.line}, col ${keyword.col}`);
+      throw new Error(
+        `Unexpected line break after 'throw' at line ${keyword.line}, col ${keyword.col}`
+      );
     }
 
     const value = this.parseExpression();
@@ -427,25 +428,22 @@ class ASTBuilder {
 
   parseImport (): ImportStatement {
     this.advance();
-    const typeOnly = this.current().value === Keyword.type && this.tokens[this.pos + 1].value !== 'from';
+    const typeOnly = this.current().value === Keyword.type &&
+      this.tokens[this.pos + 1].value !== 'from';
     if (typeOnly) {
       this.typeTokens.push(this.advance());
     }
-    const names: Token[] = [];
+
     const defaultImport = this.current().type !== TokenType.LBRACE;
+    let names: Token[];
     if (defaultImport) {
-      names.push(this.expect(TokenType.IDENTIFIER));
+      names = [this.expect(TokenType.IDENTIFIER)];
     } else {
       this.advance();
-      if (this.current().type !== TokenType.RBRACE) {
-        names.push(this.expect(TokenType.IDENTIFIER));
-        while (this.current().type === TokenType.COMMA) {
-          this.advance();
-          names.push(this.expect(TokenType.IDENTIFIER));
-        }
-      }
+      names = this.current().type === TokenType.RBRACE ? [] : this.parseNameList();
       this.expect(TokenType.RBRACE);
     }
+
     const fromToken = this.expect(TokenType.IDENTIFIER);
     if (fromToken.value !== 'from') {
       throw new Error(
@@ -455,7 +453,7 @@ class ASTBuilder {
     }
     const source = this.expect(TokenType.STRING).value as string;
     this.expect(TokenType.SEMICOLON);
-    return this.named({
+    return this.recordNameTokens({
       type: NodeType.ImportStatement,
       names: names.map(name => name.value as string),
       source,
@@ -466,7 +464,8 @@ class ASTBuilder {
 
   parseExport (): ExportStatement | TypeDeclaration | StructDeclaration {
     this.advance();
-    if (this.current().type === TokenType.KEYWORD &&
+    if (
+      this.current().type === TokenType.KEYWORD &&
       this.current().value === Keyword.struct
     ) {
       return this.parseStructDeclaration(true);
@@ -484,24 +483,31 @@ class ASTBuilder {
     if (isTypeOnly) {
       this.typeTokens.push(this.advance());
     }
-    const names: Token[] = [];
+
+    let names: Token[];
     if (this.current().type === TokenType.LBRACE) {
       this.advance();
-      names.push(this.expect(TokenType.IDENTIFIER));
-      while (this.current().type === TokenType.COMMA) {
-        this.advance();
-        names.push(this.expect(TokenType.IDENTIFIER));
-      }
+      names = this.parseNameList();
       this.expect(TokenType.RBRACE);
     } else {
-      names.push(this.expect(TokenType.IDENTIFIER));
+      names = [this.expect(TokenType.IDENTIFIER)];
     }
     this.expect(TokenType.SEMICOLON);
-    return this.named({
+    return this.recordNameTokens({
       type: NodeType.ExportStatement,
       names: names.map(name => name.value as string),
       ...(isTypeOnly && { isTypeOnly })
     }, names);
+  }
+
+  private parseNameList () {
+    const names = [this.expect(TokenType.IDENTIFIER)];
+    while (this.current().type === TokenType.COMMA) {
+      this.advance();
+      names.push(this.expect(TokenType.IDENTIFIER));
+    }
+
+    return names;
   }
 
   parseTypeDeclaration (exported = false): TypeDeclaration {
@@ -511,7 +517,7 @@ class ASTBuilder {
     this.expect(TokenType.EQUALS);
     const annotation = this.parseType();
     this.expect(TokenType.SEMICOLON);
-    return this.named({
+    return this.recordNameTokens({
       type: NodeType.TypeDeclaration,
       name: name.value as string,
       annotation,
@@ -528,7 +534,7 @@ class ASTBuilder {
     this.expect(TokenType.LBRACE);
     while (this.current().type !== TokenType.RBRACE) {
       const property = this.expect(TokenType.IDENTIFIER);
-      properties.push(this.locate({
+      properties.push(this.recordLocation({
         name: property.value as string,
         annotation: this.parseAnnotation()
       }, property));
@@ -544,7 +550,7 @@ class ASTBuilder {
       this.advance();
     }
 
-    return this.named({
+    return this.recordNameTokens({
       type: NodeType.StructDeclaration,
       name: name.value as string,
       properties,
@@ -560,29 +566,33 @@ class ASTBuilder {
   }
 
   parseType (): TypeSyntax {
-    const first = this.current();
+    const start = this.current();
     const members = [this.parseArrayType()];
     while (this.current().value === '|') {
       this.advance();
       members.push(this.parseArrayType());
     }
 
-    return members.length === 1 ? members[0] : this.locate({
+    if (members.length === 1) {
+      return members[0];
+    }
+
+    return this.recordLocation({
       kind: 'union',
       members
-    }, first);
+    }, start);
   }
 
   parseArrayType (): TypeSyntax {
-    const first = this.current();
+    const start = this.current();
     let element = this.parsePrimaryType();
     while (this.current().type === TokenType.LBRACKET) {
       this.advance();
       this.expect(TokenType.RBRACKET);
-      element = this.locate({
+      element = this.recordLocation({
         kind: 'array',
         element
-      }, first);
+      }, start);
     }
     return element;
   }
@@ -614,7 +624,7 @@ class ASTBuilder {
       }
       this.expect(TokenType.RPAREN);
       this.expect(TokenType.OPERATOR, '->');
-      return this.locate({
+      return this.recordLocation({
         kind: 'function',
         params,
         result: this.parseType()
@@ -627,7 +637,7 @@ class ASTBuilder {
       this.advance();
       let value = token.value;
       if (token.type === TokenType.KEYWORD) {
-        return this.locate({
+        return this.recordLocation({
           kind: 'literal',
           value: value === Keyword.true
         }, token);
@@ -635,7 +645,7 @@ class ASTBuilder {
       if (token.type === TokenType.OPERATOR) {
         value = -Number(this.expect(TokenType.NUMBER).value);
       }
-      return this.locate({
+      return this.recordLocation({
         kind: 'literal',
         value
       }, token);
@@ -665,7 +675,7 @@ class ASTBuilder {
         this.expect(TokenType.COMPARISON, '>');
       }
     }
-    return this.locate({
+    return this.recordLocation({
       kind: 'reference',
       name: token.value as string,
       args
@@ -688,8 +698,8 @@ class ASTBuilder {
   // Expressions
 
   parseExpression (): Expression {
-    const first = this.current();
-    return this.locate(this.parseConditional(), first);
+    const start = this.current();
+    return this.recordLocation(this.parseConditional(), start);
   }
 
   parseConditional (): Expression {
@@ -713,87 +723,47 @@ class ASTBuilder {
   }
 
   parseOr (): Expression {
-    let left = this.parseAnd();
-    while (this.current().type === TokenType.OPERATOR && this.current().value === '||') {
-      const op = this.advance().value;
-      const right = this.parseAnd();
-      left = {
-        type: NodeType.BinaryExpression,
-        operator: op as string,
-        left,
-        right
-      };
-    }
-    return left;
+    return this.parseBinary(() => this.parseAnd(), TokenType.OPERATOR, ['||']);
   }
 
   parseAnd (): Expression {
-    let left = this.parseComparison();
-    while (this.current().type === TokenType.OPERATOR && this.current().value === '&&') {
-      const op = this.advance().value;
-      const right = this.parseComparison();
-      left = {
-        type: NodeType.BinaryExpression,
-        operator: op as string,
-        left,
-        right
-      };
-    }
-    return left;
+    return this.parseBinary(() => this.parseComparison(), TokenType.OPERATOR, ['&&']);
   }
 
   parseComparison (): Expression {
-    let left = this.parseAddition();
-    while (this.current().type === TokenType.COMPARISON) {
-      const op = this.advance().value;
-      const right = this.parseAddition();
-      left = {
-        type: NodeType.BinaryExpression,
-        operator: op as string,
-        left,
-        right
-      };
-    }
-    return left;
+    return this.parseBinary(() => this.parseAddition(), TokenType.COMPARISON);
   }
 
   parseAddition (): Expression {
-    let left = this.parseMultiplication();
-    while (
-      this.current().type === TokenType.OPERATOR &&
-      (this.current().value === '+' || this.current().value === '-')
-    ) {
-      const op = this.advance().value;
-      const right = this.parseMultiplication();
-      left = {
-        type: NodeType.BinaryExpression,
-        operator: op as string,
-        left,
-        right
-      };
-    }
-    return left;
+    return this.parseBinary(() => this.parseMultiplication(), TokenType.OPERATOR, ['+', '-']);
   }
 
   parseMultiplication (): Expression {
-    let left = this.parseUnary();
-    while (
-      this.current().type === TokenType.OPERATOR &&
-      (
-        this.current().value === '*' ||
-        this.current().value === '/' ||
-        this.current().value === '%'
-      )
-    ) {
-      const op = this.advance().value;
-      const right = this.parseUnary();
+    return this.parseBinary(() => this.parseUnary(), TokenType.OPERATOR, ['*', '/', '%']);
+  }
+
+  private parseBinary (
+    parseOperand: () => Expression,
+    type: TokenType,
+    operators?: string[]
+  ): Expression {
+    let left = parseOperand();
+
+    while (this.current().type === type) {
+      const operator = this.current().value as string;
+      if (operators && !operators.includes(operator)) {
+        break;
+      }
+
+      this.advance();
       left = {
         type: NodeType.BinaryExpression,
-        operator: op as string,
+        operator,
         left,
-        right
+        right: parseOperand()
       };
     }
+
     return left;
   }
 
@@ -812,25 +782,28 @@ class ASTBuilder {
   }
 
   parseCallExpression (): Expression {
-    const first = this.current();
-    let expr = this.locate(this.parsePrimary(), first);
+    const start = this.current();
+    let expression = this.recordLocation(this.parsePrimary(), start);
 
-    while (this.current().type === TokenType.LPAREN ||
-        this.current().type === TokenType.DOT || this.current().type === TokenType.LBRACKET) {
+    while (
+      this.current().type === TokenType.LPAREN ||
+      this.current().type === TokenType.DOT ||
+      this.current().type === TokenType.LBRACKET
+    ) {
       if (this.current().type === TokenType.LBRACKET) {
         this.advance();
         const index = this.parseExpression();
         this.expect(TokenType.RBRACKET);
-        expr = this.locate({
+        expression = this.recordLocation({
           type: NodeType.IndexExpression,
-          object: expr,
+          object: expression,
           index
-        }, first);
+        }, start);
         continue;
       }
 
       if (this.current().type === TokenType.DOT) {
-        expr = this.parseMemberExpression(expr);
+        expression = this.parseMemberExpression(expression);
         continue;
       }
 
@@ -844,27 +817,26 @@ class ASTBuilder {
         }
       }
       this.expect(TokenType.RPAREN);
-      expr = this.locate({
+      expression = this.recordLocation({
         type: NodeType.CallExpression,
-        callee: expr,
+        callee: expression,
         arguments: args
-      }, first);
+      }, start);
     }
 
-    // Handle postfix ++ and --
     if (
       this.current().type === TokenType.OPERATOR &&
       (this.current().value === '++' || this.current().value === '--')
     ) {
-      const op = this.advance().value;
-      expr = this.locate({
+      const operator = this.advance().value as string;
+      expression = this.recordLocation({
         type: NodeType.UpdateExpression,
-        operator: op as string,
-        argument: expr
-      }, first);
+        operator,
+        argument: expression
+      }, start);
     }
 
-    return expr;
+    return expression;
   }
 
   parseMemberExpression (object: Expression): MemberExpression {
@@ -875,7 +847,7 @@ class ASTBuilder {
     }
     this.advance();
 
-    return this.locate({
+    return this.recordLocation({
       type: NodeType.MemberExpression,
       object,
       property: token.value as string
@@ -893,13 +865,13 @@ class ASTBuilder {
         this.advance();
         value = this.parseExpression();
       } else {
-        value = this.locate({
+        value = this.recordLocation({
           type: NodeType.Identifier,
           name
         }, token);
       }
 
-      properties.push(this.locate({
+      properties.push(this.recordLocation({
         name,
         value
       }, token));
@@ -983,9 +955,9 @@ class ASTBuilder {
 
       case TokenType.LPAREN:
         this.advance();
-        const expr = this.parseExpression();
+        const expression = this.parseExpression();
         this.expect(TokenType.RPAREN);
-        return expr;
+        return expression;
 
       default:
         throw new Error(

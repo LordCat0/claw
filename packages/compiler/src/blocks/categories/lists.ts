@@ -13,26 +13,26 @@ import {
 import type Compiler from '../../compiler.ts';
 import type Scope from '../../util/scope.ts';
 
-const limit = 200000;
+const LIST_LIMIT = 200000;
 const zero: ScratchInput = [1, [4, 0]];
-const end: ScratchInput = [1, [4, limit]];
+const end: ScratchInput = [1, [4, LIST_LIMIT]];
 const defaults: Record<string, ScratchInput[]> = {
   fill: [zero, end],
   lastIndexOf: [end],
   join: [[1, [10, ',']]]
 };
-const copies = ['slice', 'copy', 'concat', 'splice', 'remove', 'map', 'filter'];
-const returnsList = [...copies, 'clear', 'fill', 'reverse', 'sort'];
+const createsList = ['slice', 'copy', 'concat', 'splice', 'remove', 'map', 'filter'];
+const returnsList = [...createsList, 'clear', 'fill', 'reverse', 'sort'];
 export const listRuntimePath = fileURLToPath(new URL('../../internal/lists.claw', import.meta.url));
 const listBlocks = data.globals.lists.members;
 
 class ListOperations {
   private _compiler: Compiler;
-  private _helpers: Record<string, Scope>;
+  private _helperScopes: Record<string, Scope>;
 
   constructor (compiler: Compiler) {
     this._compiler = compiler;
-    this._helpers = {};
+    this._helperScopes = {};
   }
 
   create (name: string, constant = false): ListBinding {
@@ -46,19 +46,27 @@ class ListOperations {
     };
   }
 
-  async resolve (expression: Expression, scope: Scope, target?: ListBinding): Promise<ListBinding | null> {
+  async resolve (
+    expression: Expression,
+    scope: Scope,
+    target?: ListBinding
+  ): Promise<ListBinding | null> {
     if (expression.type === NodeType.Identifier || expression.type === NodeType.MemberExpression) {
       const binding = await this._compiler.resolveBinding(expression, scope);
       return binding?.kind === 'list' ? binding : null;
     }
 
-    if (expression.type === NodeType.CallExpression && expression.callee.type === NodeType.MemberExpression &&
-        returnsList.includes(expression.callee.property)) {
+    if (
+      expression.type === NodeType.CallExpression &&
+      expression.callee.type === NodeType.MemberExpression &&
+      returnsList.includes(expression.callee.property)
+    ) {
       const { object, property } = expression.callee;
       const source = await this.resolve(object, scope);
 
       if (source) {
-        return await this.call(source, property, expression.arguments, scope, true, target) as ListBinding;
+        const result = await this.call(source, property, expression.arguments, scope, true, target);
+        return result as ListBinding;
       }
     }
 
@@ -66,7 +74,7 @@ class ListOperations {
   }
 
   private length (list: ListBinding) {
-    return this.block(list, 'length');
+    return this.emitBlock(list, 'length');
   }
 
   async get (list: ListBinding, index: ScratchInput | null, scope: Scope) {
@@ -77,36 +85,41 @@ class ListOperations {
     if (index[0] === 1 && Array.isArray(index[1]) && [4, 5].includes(Number(index[1][0]))) {
       const value = Number(index[1][1]);
 
-      if (Number.isInteger(value) && Math.abs(value) <= limit) {
-        return this.block(list, 'item', [this._compiler.number(value + 1)]);
+      if (Number.isInteger(value) && Math.abs(value) <= LIST_LIMIT) {
+        return this.emitBlock(list, 'item', [this._compiler.number(value + 1)]);
       }
     }
 
     const value = await this._compiler.builtin('integer', [index], scope);
-    return this.block(list, 'item', [this.offset(value, 1)]);
+    return this.emitBlock(list, 'item', [this.offset(value, 1)]);
   }
 
   async set (list: ListBinding, index: ScratchInput | null, value: ScratchInput, scope: Scope) {
     if (index) {
-      return this.run('listSet', list, scope, [index, value], false);
+      return this.callHelper('listSet', list, scope, [index, value], false);
     }
 
-    return this.run('listResize', list, scope, [value], false);
+    return this.callHelper('listResize', list, scope, [value], false);
   }
 
-  async assign (target: ListBinding, expression: Expression | null, scope: Scope, initializing = false) {
+  async assign (
+    target: ListBinding,
+    expression: Expression | null,
+    scope: Scope,
+    initializing = false
+  ) {
     if (!expression || expression.type === NodeType.ArrayExpression) {
       const elements = expression?.type === NodeType.ArrayExpression ? expression.elements : [];
 
-      if (elements.length > limit) {
+      if (elements.length > LIST_LIMIT) {
         throw new Error('List length exceeds the Scratch limit.');
       }
 
-      const values = await this.values(elements, scope, true);
-      this.block(target, 'clear', [], scope);
+      const values = await this.parseItems(elements, scope, true);
+      this.emitBlock(target, 'clear', [], scope);
 
       for (const value of values) {
-        this.block(target, 'add', [value], scope);
+        this.emitBlock(target, 'add', [value], scope);
       }
       return;
     }
@@ -134,13 +147,13 @@ class ListOperations {
       throw new Error(`Unknown list method "${name}".`);
     }
 
-    const [min, max] = listMethods[name];
-    if (expressions.length < min || expressions.length > max) {
+    const [minimum, maximum] = listMethods[name];
+    if (expressions.length < minimum || expressions.length > maximum) {
       throw new Error(`Invalid number of arguments for list.${name}.`);
     }
 
     const compiler = this._compiler;
-    const result = asValue && copies.includes(name) ? target || this.create('$list') : null;
+    const result = asValue && createsList.includes(name) ? target || this.create('$list') : null;
 
     if (name === 'map' || name === 'filter') {
       await this.transform(list, name, expressions[0], result, scope);
@@ -152,14 +165,14 @@ class ListOperations {
 
       for (const expression of expressions) {
         if (expression.type === NodeType.ArrayExpression) {
-          for (const value of await this.values(expression.elements, scope, true)) {
+          for (const value of await this.parseItems(expression.elements, scope, true)) {
             values.push(value);
           }
           continue;
         }
 
         const source = await this.resolve(expression, scope);
-        values.push(source || (await this.values([expression], scope, true))[0]);
+        values.push(source || (await this.parseItems([expression], scope, true))[0]);
       }
 
       if (result) {
@@ -167,7 +180,7 @@ class ListOperations {
 
         for (const value of values) {
           if (typeof value === 'object' && 'field' in value) {
-            await this.run('listAppend', value, scope, [zero, end], false, result);
+            await this.callHelper('listAppend', value, scope, [zero, end], false, result);
           } else {
             await this.add(result, [value], scope);
           }
@@ -176,7 +189,7 @@ class ListOperations {
       return result || scope.lastBlock;
     }
 
-    const inputs = await this.values(expressions, scope);
+    const inputs = await this.parseItems(expressions, scope);
     const [first, second] = inputs;
 
     switch (name) {
@@ -186,12 +199,12 @@ class ListOperations {
       case 'pop':
       case 'shift': {
         const index = name === 'pop' ? [1, [10, 'last']] as ScratchInput : compiler.number(1);
-        const value = asValue ? compiler.capture(this.block(list, 'item', [index]), scope) : null;
-        this.block(list, 'delete', [index], scope);
+        const value = asValue ? compiler.capture(this.emitBlock(list, 'item', [index]), scope) : null;
+        this.emitBlock(list, 'delete', [index], scope);
         return value || scope.lastBlock;
       }
       case 'clear':
-        this.block(list, 'clear', [], scope);
+        this.emitBlock(list, 'clear', [], scope);
         return asValue ? list : scope.lastBlock;
       case 'slice':
       case 'copy':
@@ -211,15 +224,15 @@ class ListOperations {
         const values = name === 'unshift' ? inputs : inputs.slice(firstItem);
 
         if (removes) {
-          const count = second || compiler.number(name === 'remove' ? 1 : limit);
-          const removed = await this.run('listDeleteCount', list, scope, [position, count]);
+          const count = second || compiler.number(name === 'remove' ? 1 : LIST_LIMIT);
+          const removed = await this.callHelper('listDeleteCount', list, scope, [position, count]);
 
           if (result) {
-            this.block(result, 'clear', [], scope);
-            await this.run('listTake', list, scope, [position, removed], false, result);
+            this.emitBlock(result, 'clear', [], scope);
+            await this.callHelper('listTake', list, scope, [position, removed], false, result);
           }
 
-          await this.run('listDelete', list, scope, [position, removed], false);
+          await this.callHelper('listDelete', list, scope, [position, removed], false);
         }
 
         await this.add(list, values, scope, position);
@@ -228,12 +241,12 @@ class ListOperations {
       case 'indexOf':
       case 'includes': {
         if (!second && name === 'includes') {
-          return this.block(list, 'contains', [first]);
+          return this.emitBlock(list, 'contains', [first]);
         }
 
         const index = second
-          ? await this.run('listIndexOf', list, scope, inputs, asValue)
-          : this.offset(this.block(list, 'indexOf', [first]), -1);
+          ? await this.callHelper('listIndexOf', list, scope, inputs, asValue)
+          : this.offset(this.emitBlock(list, 'indexOf', [first]), -1);
 
         if (name === 'includes' && asValue) {
           return compiler.reporter('operator_gt', {
@@ -244,16 +257,16 @@ class ListOperations {
         return index;
       }
       default: {
-        const helper = `list${name[0].toUpperCase()}${name.slice(1)}`;
+        const helperName = `list${name[0].toUpperCase()}${name.slice(1)}`;
         const returnsSource = returnsList.includes(name);
-        inputs.push(...(defaults[name] || []).slice(inputs.length - min));
-        const value = await this.run(helper, list, scope, inputs, asValue && !returnsSource);
+        inputs.push(...(defaults[name] || []).slice(inputs.length - minimum));
+        const value = await this.callHelper(helperName, list, scope, inputs, asValue && !returnsSource);
         return asValue && returnsSource ? list : value;
       }
     }
   }
 
-  private block (
+  private emitBlock (
     list: ListBinding,
     method: keyof typeof listBlocks,
     inputs: ScratchInput[] = [],
@@ -267,7 +280,9 @@ class ListOperations {
       bodies: []
     }, compiler);
 
-    return scope ? compiler.append(scope, block) : compiler.reporter(block.opcode, block.inputs, block.fields);
+    return scope
+      ? compiler.append(scope, block)
+      : compiler.reporter(block.opcode, block.inputs, block.fields);
   }
 
   private offset (value: ScratchInput, offset: number) {
@@ -277,7 +292,7 @@ class ListOperations {
     });
   }
 
-  private async values (expressions: Expression[], scope: Scope, capture = false) {
+  private async parseItems (expressions: Expression[], scope: Scope, capture = false) {
     const values: ScratchInput[] = [];
     const compiler = this._compiler;
 
@@ -301,15 +316,15 @@ class ListOperations {
     const compiler = this._compiler;
     const full = compiler.reporter('operator_gt', {
       OPERAND1: this.length(list),
-      OPERAND2: compiler.number(limit - values.length)
+      OPERAND2: compiler.number(LIST_LIMIT - values.length)
     });
     await this.failIf(full, 'List length exceeds the Scratch limit.', scope);
 
     for (const [index, value] of values.entries()) {
       if (start) {
-        this.block(list, 'insert', [this.offset(start, index + 1), value], scope);
+        this.emitBlock(list, 'insert', [this.offset(start, index + 1), value], scope);
       } else {
-        this.block(list, 'add', [value], scope);
+        this.emitBlock(list, 'add', [value], scope);
       }
     }
   }
@@ -331,15 +346,15 @@ class ListOperations {
     scope: Scope,
     range?: ScratchInput[]
   ) {
-    this.block(target, 'clear', [], scope);
+    this.emitBlock(target, 'clear', [], scope);
     if (range) {
-      await this.run('listAppend', source, scope, range, false, target);
+      await this.callHelper('listAppend', source, scope, range, false, target);
     } else {
-      await this.run('listTake', source, scope, [zero, this.length(source)], false, target);
+      await this.callHelper('listTake', source, scope, [zero, this.length(source)], false, target);
     }
   }
 
-  private async run (
+  private async callHelper (
     name: string,
     source: ListBinding,
     scope: Scope,
@@ -351,33 +366,33 @@ class ListOperations {
     const sort = name === 'listSort';
     // Scratch list fields are fixed when a procedure is compiled.
     const key = `$${source.field[1]}:${sort ? 'sort' : target?.field[1] || ''}`;
-    let helper = this._helpers[key];
+    let helperScope = this._helperScopes[key];
 
-    if (!helper) {
-      helper = compiler.builtins.createChild();
-      helper.define('source', source);
+    if (!helperScope) {
+      helperScope = compiler.builtins.createChild();
+      helperScope.define('source', source);
 
       if (sort) {
         target = this.create('$sort');
       }
 
       if (target) {
-        helper.define('target', target);
+        helperScope.define('target', target);
       }
 
-      const program = compiler.loadPrograms(listRuntimePath);
+      const program = compiler.loadProgram(listRuntimePath);
       const template = program.body.find((statement): statement is FunctionDeclaration => {
         return statement.type === NodeType.FunctionDeclaration && statement.name === 'listHelpers';
       });
 
       for (const declaration of template.body.body as FunctionDeclaration[]) {
-        await compiler.parseFunction(declaration, helper);
+        await compiler.parseFunction(declaration, helperScope);
       }
 
-      this._helpers[key] = helper;
+      this._helperScopes[key] = helperScope;
     }
 
-    return compiler.builtin(helper.resolve(name) as FunctionBinding, args, scope, asValue);
+    return compiler.builtin(helperScope.resolve(name) as FunctionBinding, args, scope, asValue);
   }
 
   private async transform (
@@ -414,7 +429,7 @@ class ListOperations {
 
     if (target) {
       helper.define('target', target);
-      this.block(target, 'clear', [], scope);
+      this.emitBlock(target, 'clear', [], scope);
     }
 
     const args = ['value', 'index'].slice(0, callback.args.length).join(', ');

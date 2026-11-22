@@ -51,7 +51,12 @@ export default {
     create: ({ inputs, fields }, compiler) => ({
       opcode: 'pen_changePenColorParamBy',
       inputs: {
-        COLOR_PARAM: compiler.menu('pen_menu_colorParam', 'colorParam', fields[0], inputs[0]),
+        COLOR_PARAM: compiler.menu(
+          'pen_menu_colorParam',
+          'colorParam',
+          fields[0],
+          inputs[0]
+        ),
         VALUE: inputs[1]
       }
     })
@@ -63,7 +68,12 @@ export default {
     create: ({ inputs, fields }, compiler) => ({
       opcode: 'pen_setPenColorParamTo',
       inputs: {
-        COLOR_PARAM: compiler.menu('pen_menu_colorParam', 'colorParam', fields[0], inputs[0]),
+        COLOR_PARAM: compiler.menu(
+          'pen_menu_colorParam',
+          'colorParam',
+          fields[0],
+          inputs[0]
+        ),
         VALUE: inputs[1]
       }
     })

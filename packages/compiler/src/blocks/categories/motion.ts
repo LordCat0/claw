@@ -68,7 +68,12 @@ export default {
       create: ({ inputs, fields }, compiler) => ({
         opcode: 'motion_pointtowards',
         inputs: {
-          TOWARDS: compiler.menu('motion_pointtowards_menu', 'TOWARDS', fields[0], inputs[0])
+          TOWARDS: compiler.menu(
+            'motion_pointtowards_menu',
+            'TOWARDS',
+            fields[0],
+            inputs[0]
+          )
         }
       })
     },

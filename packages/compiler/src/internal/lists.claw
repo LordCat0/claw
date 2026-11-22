@@ -6,6 +6,8 @@ var allocated: number;
 function* allocateFrame(bucket: number, size: number): number {
   waitUntil(reserving == 0);
   reserving = 1;
+
+  // A free frame's first slot points to the next free frame in its bucket.
   var head = lists.item("$frameFree", bucket);
   if (head > 0) {
     allocated = head;
@@ -19,6 +21,7 @@ function* allocateFrame(bucket: number, size: number): number {
       lists.add("$frames", "");
     }
   }
+
   reserving = 0;
   return allocated;
 }
@@ -71,6 +74,7 @@ function* listHelpers(source: Scalar[], target: Scalar[]): void {
     if (index < 0) {
       index += lists.length(source);
     }
+    // Scratch list positions start at 1.
     return lists.item(source, index + 1);
   }
 
@@ -207,7 +211,10 @@ function* listHelpers(source: Scalar[], target: Scalar[]): void {
     var result = lists.item(source, 1);
     var index = 2;
     repeat (lists.length(source) - 1) {
-      result = compiler.join(compiler.join(result, separator), lists.item(source, index));
+      result = compiler.join(
+        compiler.join(result, separator),
+        lists.item(source, index)
+      );
       index++;
     }
     return result;
@@ -216,6 +223,8 @@ function* listHelpers(source: Scalar[], target: Scalar[]): void {
   function* listSort(): void {
     var length = lists.length(source);
     var width = 1;
+
+    // Merge adjacent runs, doubling their width on each pass.
     while (width < length) {
       lists.clear(target);
       var start = 1;
@@ -228,8 +237,10 @@ function* listHelpers(source: Scalar[], target: Scalar[]): void {
         var left = start;
         var right = middle;
         repeat (end - start) {
-          if (right >= end || left < middle &&
-              !(lists.item(source, right) < lists.item(source, left))) {
+          if (
+            right >= end ||
+            left < middle && !(lists.item(source, right) < lists.item(source, left))
+          ) {
             lists.add(target, lists.item(source, left));
             left++;
           } else {
@@ -239,6 +250,7 @@ function* listHelpers(source: Scalar[], target: Scalar[]): void {
         }
         start = end;
       }
+
       var index = 1;
       repeat (length) {
         lists.replace(source, index, lists.item(target, index));

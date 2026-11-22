@@ -8,7 +8,12 @@ export default {
     create: ({ inputs, fields, bodies }, compiler) => ({
       opcode: 'gdxfor_whenGesture',
       inputs: {
-        GESTURE: compiler.menu('gdxfor_menu_gestureOptions', 'gestureOptions', fields[0], inputs[0])
+        GESTURE: compiler.menu(
+          'gdxfor_menu_gestureOptions',
+          'gestureOptions',
+          fields[0],
+          inputs[0]
+        )
       },
       topLevel: true,
       next: bodies[1]
@@ -22,7 +27,10 @@ export default {
       opcode: 'gdxfor_whenForcePushedOrPulled',
       inputs: {
         PUSH_PULL: compiler.menu(
-          'gdxfor_menu_pushPullOptions', 'pushPullOptions', fields[0], inputs[0]
+          'gdxfor_menu_pushPullOptions',
+          'pushPullOptions',
+          fields[0],
+          inputs[0]
         )
       },
       topLevel: true,
@@ -44,7 +52,12 @@ export default {
     create: ({ inputs, fields, bodies }, compiler) => ({
       opcode: 'gdxfor_whenTilted',
       inputs: {
-        TILT: compiler.menu('gdxfor_menu_tiltAnyOptions', 'tiltAnyOptions', fields[0], inputs[0])
+        TILT: compiler.menu(
+          'gdxfor_menu_tiltAnyOptions',
+          'tiltAnyOptions',
+          fields[0],
+          inputs[0]
+        )
       },
       topLevel: true,
       next: bodies[1]
@@ -57,7 +70,12 @@ export default {
     create: ({ inputs, fields }, compiler) => ({
       opcode: 'gdxfor_isTilted',
       inputs: {
-        TILT: compiler.menu('gdxfor_menu_tiltAnyOptions', 'tiltAnyOptions', fields[0], inputs[0])
+        TILT: compiler.menu(
+          'gdxfor_menu_tiltAnyOptions',
+          'tiltAnyOptions',
+          fields[0],
+          inputs[0]
+        )
       }
     })
   },
@@ -87,7 +105,12 @@ export default {
     create: ({ inputs, fields }, compiler) => ({
       opcode: 'gdxfor_getSpinSpeed',
       inputs: {
-        DIRECTION: compiler.menu('gdxfor_menu_axisOptions', 'axisOptions', fields[0], inputs[0])
+        DIRECTION: compiler.menu(
+          'gdxfor_menu_axisOptions',
+          'axisOptions',
+          fields[0],
+          inputs[0]
+        )
       }
     })
   },
@@ -98,7 +121,12 @@ export default {
     create: ({ inputs, fields }, compiler) => ({
       opcode: 'gdxfor_getAcceleration',
       inputs: {
-        DIRECTION: compiler.menu('gdxfor_menu_axisOptions', 'axisOptions', fields[0], inputs[0])
+        DIRECTION: compiler.menu(
+          'gdxfor_menu_axisOptions',
+          'axisOptions',
+          fields[0],
+          inputs[0]
+        )
       }
     })
   }

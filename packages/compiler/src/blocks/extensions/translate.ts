@@ -9,7 +9,12 @@ export default {
       opcode: 'translate_getTranslate',
       inputs: {
         WORDS: inputs[0],
-        LANGUAGE: compiler.menu('translate_menu_languages', 'languages', fields[1], inputs[1])
+        LANGUAGE: compiler.menu(
+          'translate_menu_languages',
+          'languages',
+          fields[1],
+          inputs[1]
+        )
       }
     })
   },

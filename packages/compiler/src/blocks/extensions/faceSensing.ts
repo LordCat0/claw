@@ -1,4 +1,7 @@
-import type { Bindings, CallArguments } from '../../types.ts';
+import type {
+  Bindings,
+  CallArguments
+} from '../../types.ts';
 
 const partIds: Record<string, string> = {
   'left eye': '0',
@@ -11,7 +14,7 @@ const partIds: Record<string, string> = {
   'top of head': '7'
 };
 
-function partField (field: CallArguments['fields'][number]) {
+function facePartField (field: CallArguments['fields'][number]) {
   const part = String(field[0]);
   return [Object.hasOwn(partIds, part) ? partIds[part] : part, null];
 }
@@ -24,7 +27,7 @@ export default {
     create: ({ fields }) => ({
       opcode: 'faceSensing_goToPart',
       fields: {
-        PART: partField(fields[0])
+        PART: facePartField(fields[0])
       }
     })
   },
@@ -64,7 +67,7 @@ export default {
     create: ({ fields, bodies }) => ({
       opcode: 'faceSensing_whenSpriteTouchesPart',
       fields: {
-        PART: partField(fields[0])
+        PART: facePartField(fields[0])
       },
       topLevel: true,
       next: bodies[1]

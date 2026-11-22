@@ -68,7 +68,10 @@ export default {
       inputs: {
         MOTOR_ID: compiler.menu('boost_menu_MOTOR_ID', 'MOTOR_ID', fields[0], inputs[0]),
         MOTOR_DIRECTION: compiler.menu(
-          'boost_menu_MOTOR_DIRECTION', 'MOTOR_DIRECTION', fields[1], inputs[1]
+          'boost_menu_MOTOR_DIRECTION',
+          'MOTOR_DIRECTION',
+          fields[1],
+          inputs[1]
         )
       }
     })
@@ -81,7 +84,10 @@ export default {
       opcode: 'boost_getMotorPosition',
       inputs: {
         MOTOR_REPORTER_ID: compiler.menu(
-          'boost_menu_MOTOR_REPORTER_ID', 'MOTOR_REPORTER_ID', fields[0], inputs[0]
+          'boost_menu_MOTOR_REPORTER_ID',
+          'MOTOR_REPORTER_ID',
+          fields[0],
+          inputs[0]
         )
       }
     })
@@ -118,7 +124,10 @@ export default {
       opcode: 'boost_whenTilted',
       inputs: {
         TILT_DIRECTION_ANY: compiler.menu(
-          'boost_menu_TILT_DIRECTION_ANY', 'TILT_DIRECTION_ANY', fields[0], inputs[0]
+          'boost_menu_TILT_DIRECTION_ANY',
+          'TILT_DIRECTION_ANY',
+          fields[0],
+          inputs[0]
         )
       },
       topLevel: true,
@@ -133,7 +142,10 @@ export default {
       opcode: 'boost_getTiltAngle',
       inputs: {
         TILT_DIRECTION: compiler.menu(
-          'boost_menu_TILT_DIRECTION', 'TILT_DIRECTION', fields[0], inputs[0]
+          'boost_menu_TILT_DIRECTION',
+          'TILT_DIRECTION',
+          fields[0],
+          inputs[0]
         )
       }
     })

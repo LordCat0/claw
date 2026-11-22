@@ -9,6 +9,7 @@ import TypeChecker, {
   type TypeModule
 } from './type-checker.ts';
 import {
+  EMPTY_COSTUME_FILE,
   newSprite,
   newBlock
 } from './util/project-util.ts';
@@ -27,6 +28,8 @@ import meta from '../package.json' with { type: 'json' };
 import {
   NodeType,
   type Statement,
+  type VarDeclaration,
+  type ImportStatement,
   type Block,
   type Expression,
   type Literal,
@@ -277,7 +280,12 @@ class Compiler {
     return this._frameSizes.length;
   }
 
-  async builtin (name: string | FunctionBinding, inputs: ScratchInput[], scope: Scope, asValue = true) {
+  async builtin (
+    name: string | FunctionBinding,
+    inputs: ScratchInput[],
+    scope: Scope,
+    asValue = true
+  ) {
     const binding = typeof name === 'string' ? this.builtins.resolve(name) as FunctionBinding : name;
     return this.parseCall(binding, [], scope, asValue, inputs);
   }
@@ -333,7 +341,7 @@ class Compiler {
     }
 
     if (scope.frame) {
-      variable = scope.frame.variable();
+      variable = scope.frame.allocateSlot();
     } else {
       const id = uid();
       variable = new Scope().defineVariable('$temporary', id);
@@ -642,9 +650,9 @@ class Compiler {
     expressions: Expression[],
     scope: Scope,
     asValue = false,
-    values?: ScratchInput[]
+    compiledInputs?: ScratchInput[]
   ): Promise<ScratchInput> {
-    const [result] = await this.emitCall(definition, expressions, scope, asValue, values);
+    const [result] = await this.emitCall(definition, expressions, scope, asValue, compiledInputs);
     return result;
   }
 
@@ -653,7 +661,7 @@ class Compiler {
     expressions: Expression[],
     scope: Scope,
     asValue: boolean,
-    values?: ScratchInput[]
+    compiledInputs?: ScratchInput[]
   ): Promise<ScratchInput[]> {
     if (definition.blockType === 'hat' && (scope.isFunction || scope.inTry)) {
       throw new Error(scope.isFunction
@@ -661,7 +669,7 @@ class Compiler {
         : 'Event handlers must be declared outside try blocks.');
     }
 
-    const count = (values || expressions).length;
+    const count = (compiledInputs || expressions).length;
 
     if (count !== definition.args.length) {
       throw new Error(
@@ -680,137 +688,7 @@ class Compiler {
       throw new Error('This function does not return a value.');
     }
 
-    const args: CallArguments = {
-      inputs: [],
-      fields: [],
-      bodies: []
-    };
-
-    let offset = 0;
-    for (let i = 0; i < definition.args.length; i++) {
-      const argument = definition.args[i];
-      const expression = expressions[i];
-      const input = i + offset;
-
-      if (definition.structParams?.[i]) {
-        const fields = await this.parseValues(expression, scope);
-        const capture = expressions.slice(i + 1).some(value => this.needsFrame(value, true, scope));
-        for (const [index, field] of fields.entries()) {
-          args.inputs[input + index] = capture ? this.capture(field, scope) : field;
-        }
-        offset += fields.length - 1;
-        continue;
-      }
-
-      if (values && typeof argument === 'number') {
-        args.inputs[i] = values[i];
-        continue;
-      }
-      const literal =
-        expression.type === NodeType.StringLiteral ||
-        expression.type === NodeType.NumberLiteral ||
-        expression.type === NodeType.BooleanLiteral;
-
-      if (
-        literal &&
-        (typeof argument !== 'number' || expression.type !== NodeType.BooleanLiteral)
-      ) {
-        args.fields[i] = [expression.value, null];
-      }
-
-      if (typeof argument === 'number') {
-        if (
-          expression.type === NodeType.StringLiteral ||
-          expression.type === NodeType.NumberLiteral
-        ) {
-          args.inputs[input] = [1, [argument, String(expression.value)]];
-        } else {
-          args.inputs[input] = await this.parseExpression(expression, scope, true);
-
-          if ((definition.procedure?.frame && this.needsFrame(expression, true, scope)) ||
-              expressions.slice(i + 1).some(value => this.needsFrame(value, true, scope))) {
-            args.inputs[input] = this.capture(args.inputs[input], scope);
-          }
-        }
-
-        continue;
-      }
-
-      if (argument === 'body') {
-        const callback = await this.resolveBinding(expression, scope);
-
-        if (
-          !callback ||
-          callback.kind !== 'function' ||
-          callback.args.length !== 0 ||
-          callback.blockType !== 'command'
-        ) {
-          throw new Error('Block bodies require a function without parameters.');
-        }
-
-        const bodyScope = scope.createChild();
-        await this.parseCall(callback, [], bodyScope);
-        args.bodies[i] = bodyScope.firstBlock;
-        continue;
-      }
-
-      if (argument === 'broadcast' && definition.blockType !== 'hat' && !literal) {
-        args.inputs[i] = await this.parseExpression(expression, scope, true);
-        continue;
-      }
-
-      if (argument === 'list' && expression.type === NodeType.Identifier) {
-        const list = scope.resolve(expression.name);
-
-        if (list?.kind === 'list') {
-          args.fields[i] = list.field;
-          continue;
-        }
-      }
-
-      if (!literal) {
-        throw new Error('Block dropdowns and data names require a literal value.');
-      }
-
-      const name = String(expression.value);
-
-      switch (argument) {
-        case 'variable': {
-          const resolved = scope.resolve(name);
-
-          if (!resolved || resolved.kind !== 'variable' || !resolved.storage) {
-            throw new Error(`"${name}" is not a variable.`);
-          }
-
-          args.fields[i] = [resolved.storage.name, resolved.storage.id];
-          break;
-        }
-        case 'list': {
-          if (name.startsWith('$')) {
-            if (!scope.internal) {
-              throw new Error('Compiler lists are private.');
-            }
-
-            args.fields[i] = this.list(name);
-            break;
-          }
-
-          const lists = this.stage.lists;
-          const id = Object.keys(lists).find(id => lists[id][0] === name) || uid();
-          lists[id] = lists[id] || [name, []];
-          args.fields[i] = [name, id];
-          break;
-        }
-        case 'broadcast': {
-          const broadcasts = this.stage.broadcasts;
-          const id = Object.keys(broadcasts).find(id => broadcasts[id] === name) || uid();
-          broadcasts[id] = name;
-          args.fields[i] = [name, id];
-          args.inputs[i] = [1, [11, name, id]];
-          break;
-        }
-      }
-    }
+    const args = await this.parseCallArguments(definition, expressions, scope, compiledInputs);
 
     let frameIndex: ScratchInput;
     const procedure = definition.procedure;
@@ -875,7 +753,9 @@ class Compiler {
 
       if (frame.canStop) {
         this.appendEndBlock(
-          scope, control.thread.stop.create(), this.equals(status, this.number(ProcedureExit.Stop))
+          scope,
+          control.thread.stop.create(),
+          this.equals(status, this.number(ProcedureExit.Stop))
         );
       }
 
@@ -905,6 +785,151 @@ class Compiler {
     return [scope.lastBlock];
   }
 
+  private async parseCallArguments (
+    definition: FunctionBinding,
+    expressions: Expression[],
+    scope: Scope,
+    compiledInputs?: ScratchInput[]
+  ): Promise<CallArguments> {
+    const args: CallArguments = {
+      inputs: [],
+      fields: [],
+      bodies: []
+    };
+
+    let extraInputs = 0;
+    for (const [index, argumentType] of definition.args.entries()) {
+      const expression = expressions[index];
+      const inputIndex = index + extraInputs;
+
+      if (definition.structParams?.[index]) {
+        const fields = await this.parseValues(expression, scope);
+        const capture = expressions.slice(index + 1).some(value =>
+          this.needsFrame(value, true, scope)
+        );
+        for (const [fieldIndex, field] of fields.entries()) {
+          args.inputs[inputIndex + fieldIndex] = capture ? this.capture(field, scope) : field;
+        }
+        extraInputs += fields.length - 1;
+        continue;
+      }
+
+      if (compiledInputs && typeof argumentType === 'number') {
+        args.inputs[index] = compiledInputs[index];
+        continue;
+      }
+
+      const isLiteral =
+        expression.type === NodeType.StringLiteral ||
+        expression.type === NodeType.NumberLiteral ||
+        expression.type === NodeType.BooleanLiteral;
+
+      if (
+        isLiteral &&
+        (typeof argumentType !== 'number' || expression.type !== NodeType.BooleanLiteral)
+      ) {
+        args.fields[index] = [expression.value, null];
+      }
+
+      if (typeof argumentType === 'number') {
+        if (
+          expression.type === NodeType.StringLiteral ||
+          expression.type === NodeType.NumberLiteral
+        ) {
+          args.inputs[inputIndex] = [1, [argumentType, String(expression.value)]];
+        } else {
+          args.inputs[inputIndex] = await this.parseExpression(expression, scope, true);
+
+          if (
+            (definition.procedure?.frame && this.needsFrame(expression, true, scope)) ||
+            expressions.slice(index + 1).some(value => this.needsFrame(value, true, scope))
+          ) {
+            args.inputs[inputIndex] = this.capture(args.inputs[inputIndex], scope);
+          }
+        }
+
+        continue;
+      }
+
+      if (argumentType === 'body') {
+        const callback = await this.resolveBinding(expression, scope);
+
+        if (
+          !callback ||
+          callback.kind !== 'function' ||
+          callback.args.length !== 0 ||
+          callback.blockType !== 'command'
+        ) {
+          throw new Error('Block bodies require a function without parameters.');
+        }
+
+        const bodyScope = scope.createChild();
+        await this.parseCall(callback, [], bodyScope);
+        args.bodies[index] = bodyScope.firstBlock;
+        continue;
+      }
+
+      if (argumentType === 'broadcast' && definition.blockType !== 'hat' && !isLiteral) {
+        args.inputs[index] = await this.parseExpression(expression, scope, true);
+        continue;
+      }
+
+      if (argumentType === 'list' && expression.type === NodeType.Identifier) {
+        const list = scope.resolve(expression.name);
+
+        if (list?.kind === 'list') {
+          args.fields[index] = list.field;
+          continue;
+        }
+      }
+
+      if (!isLiteral) {
+        throw new Error('Block dropdowns and data names require a literal value.');
+      }
+
+      const name = String(expression.value);
+
+      switch (argumentType) {
+        case 'variable': {
+          const resolved = scope.resolve(name);
+
+          if (!resolved || resolved.kind !== 'variable' || !resolved.storage) {
+            throw new Error(`"${name}" is not a variable.`);
+          }
+
+          args.fields[index] = [resolved.storage.name, resolved.storage.id];
+          break;
+        }
+        case 'list': {
+          if (name.startsWith('$')) {
+            if (!scope.internal) {
+              throw new Error('Compiler lists are private.');
+            }
+
+            args.fields[index] = this.list(name);
+            break;
+          }
+
+          const lists = this.stage.lists;
+          const id = Object.keys(lists).find(id => lists[id][0] === name) || uid();
+          lists[id] = lists[id] || [name, []];
+          args.fields[index] = [name, id];
+          break;
+        }
+        case 'broadcast': {
+          const broadcasts = this.stage.broadcasts;
+          const id = Object.keys(broadcasts).find(id => broadcasts[id] === name) || uid();
+          broadcasts[id] = name;
+          args.fields[index] = [name, id];
+          args.inputs[index] = [1, [11, name, id]];
+          break;
+        }
+      }
+    }
+
+    return args;
+  }
+
   async parseSubstack (
     bodyStatements: Statement[],
     parentScope: Scope,
@@ -912,7 +937,7 @@ class Compiler {
     input = 'SUBSTACK'
   ) {
     const childScope = parentScope.createChild();
-    await this.parseASTBody(bodyStatements, childScope);
+    await this.parseStatements(bodyStatements, childScope);
 
     if (childScope.firstBlock) {
       this.attachSubstack(parentBlockId, input, childScope);
@@ -920,7 +945,7 @@ class Compiler {
   }
 
   async parseBinaryExpression (
-    expr: BinaryExpression,
+    expression: BinaryExpression,
     scope: Scope,
     inputs?: [ScratchInput, ScratchInput]
   ): Promise<ScratchInput> {
@@ -940,20 +965,20 @@ class Compiler {
       '>=': 'operator_lt'
     };
 
-    if (!Object.hasOwn(arithmetic, expr.operator) &&
-        !Object.hasOwn(comparisons, expr.operator) &&
-        expr.operator !== '&&' && expr.operator !== '||') {
-      throw new Error(`Unsupported binary operator "${expr.operator}".`);
+    if (!Object.hasOwn(arithmetic, expression.operator) &&
+        !Object.hasOwn(comparisons, expression.operator) &&
+        expression.operator !== '&&' && expression.operator !== '||') {
+      throw new Error(`Unsupported binary operator "${expression.operator}".`);
     }
 
-    let left = inputs ? inputs[0] : await this.parseExpression(expr.left, scope, true);
+    let left = inputs ? inputs[0] : await this.parseExpression(expression.left, scope, true);
 
-    if (expr.operator === '&&' || expr.operator === '||') {
+    if (expression.operator === '&&' || expression.operator === '||') {
       const rightScope = scope.createChild();
-      const right = await this.parseExpression(expr.right, rightScope, true);
+      const right = await this.parseExpression(expression.right, rightScope, true);
 
       if (scope.internal && !rightScope.firstBlock) {
-        const opcode = expr.operator === '&&' ? 'operator_and' : 'operator_or';
+        const opcode = expression.operator === '&&' ? 'operator_and' : 'operator_or';
         return this.reporter(opcode, {
           OPERAND1: this.boolean(left),
           OPERAND2: this.boolean(right)
@@ -964,7 +989,7 @@ class Compiler {
       this.write(result, this.boolean(left), scope);
       let condition = this.boolean(this.read(result));
 
-      if (expr.operator === '||') {
+      if (expression.operator === '||') {
         condition = this.not(condition);
       }
 
@@ -980,21 +1005,21 @@ class Compiler {
     }
 
     let sum: VariableBinding;
-    let addition = expr.operator === '+' ? this.additionOpcode(expr) : null;
+    let addition = expression.operator === '+' ? this.additionOpcode(expression) : null;
 
-    if (expr.operator === '+' && scope.internal) {
+    if (expression.operator === '+' && scope.internal) {
       addition = 'operator_add';
     }
 
-    if (expr.operator === '+' && !addition) {
+    if (expression.operator === '+' && !addition) {
       sum = this.temporary(scope);
       this.write(sum, left, scope);
       left = this.read(sum);
-    } else if (this.needsFrame(expr.right, true, scope)) {
+    } else if (this.needsFrame(expression.right, true, scope)) {
       left = this.capture(left, scope);
     }
 
-    let right = inputs ? inputs[1] : await this.parseExpression(expr.right, scope, true);
+    let right = inputs ? inputs[1] : await this.parseExpression(expression.right, scope, true);
 
     if (sum) {
       right = this.capture(right, scope);
@@ -1044,21 +1069,21 @@ class Compiler {
       });
     }
 
-    if (Object.hasOwn(arithmetic, expr.operator)) {
-      result = this.reporter(arithmetic[expr.operator], {
+    if (Object.hasOwn(arithmetic, expression.operator)) {
+      result = this.reporter(arithmetic[expression.operator], {
         NUM1: left,
         NUM2: right
       });
-    } else if (expr.operator === '==' || expr.operator === '!=') {
+    } else if (expression.operator === '==' || expression.operator === '!=') {
       result = this.equals(left, right);
     } else {
-      result = this.reporter(comparisons[expr.operator], {
+      result = this.reporter(comparisons[expression.operator], {
         OPERAND1: left,
         OPERAND2: right
       });
     }
 
-    if (['!=', '<=', '>='].includes(expr.operator)) {
+    if (['!=', '<=', '>='].includes(expression.operator)) {
       return this.not(result);
     }
 
@@ -1074,7 +1099,9 @@ class Compiler {
 
     if (constant) {
       const selected = this.truthy(constant.value) ? expression.consequent : expression.alternate;
-      return asValue ? this.parseValues(selected, scope) : [await this.parseExpression(selected, scope)];
+      return asValue
+        ? this.parseValues(selected, scope)
+        : [await this.parseExpression(selected, scope)];
     }
 
     const test = await this.parseExpression(expression.test, scope, true);
@@ -1114,16 +1141,16 @@ class Compiler {
   }
 
   async parseUnaryExpression (
-    expr: UnaryExpression,
+    expression: UnaryExpression,
     scope: Scope
   ): Promise<ScratchInput> {
-    if (expr.operator !== '!' && expr.operator !== '-') {
-      throw new Error(`Unsupported unary operator "${expr.operator}".`);
+    if (expression.operator !== '!' && expression.operator !== '-') {
+      throw new Error(`Unsupported unary operator "${expression.operator}".`);
     }
 
-    const value = await this.parseExpression(expr.value, scope, true);
+    const value = await this.parseExpression(expression.value, scope, true);
 
-    if (expr.operator === '!') {
+    if (expression.operator === '!') {
       return this.not(this.boolean(value));
     }
 
@@ -1133,7 +1160,11 @@ class Compiler {
     });
   }
 
-  private structBinding (type: StructType, fields: VariableBinding[], constant: boolean): ObjectBinding {
+  private structBinding (
+    type: StructType,
+    fields: VariableBinding[],
+    constant: boolean
+  ): ObjectBinding {
     const members: Bindings = Object.create(null);
     for (const [name, property] of Object.entries(type.properties)) {
       const { offset, width } = property;
@@ -1291,7 +1322,10 @@ class Compiler {
         const binding = await this.resolveBinding(expression, scope);
 
         if (!binding || binding.kind !== 'variable') {
-          if (expression.type === NodeType.MemberExpression && this._types.structs.has(expression.object)) {
+          if (
+            expression.type === NodeType.MemberExpression &&
+            this._types.structs.has(expression.object)
+          ) {
             const [value] = await this.parseStructMember(expression, scope);
             return value;
           }
@@ -1312,15 +1346,13 @@ class Compiler {
               expression.argument.property === 'length' &&
               !(await this.resolveBinding(expression.argument, scope)))) {
           const { read, write } = await this.parseListTarget(expression.argument, scope, true);
-          const old = await read();
-          const previous = asValue ? this.capture(old, scope) : old;
-          const value: ScratchInput = [2, this.insertBlock({
-            opcode: expression.operator === '++' ? 'operator_add' : 'operator_subtract',
-            inputs: {
-              NUM1: previous,
-              NUM2: [1, [4, 1]]
-            }
-          })];
+          const current = await read();
+          const previous = asValue ? this.capture(current, scope) : current;
+          const opcode = expression.operator === '++' ? 'operator_add' : 'operator_subtract';
+          const value = this.reporter(opcode, {
+            NUM1: previous,
+            NUM2: [1, [4, 1]]
+          });
           await write(value);
           return asValue ? previous : scope.lastBlock;
         }
@@ -1338,23 +1370,20 @@ class Compiler {
         let oldValue = this.read(binding);
 
         if (asValue) {
-          oldValue = this.capture([2, this.insertBlock({
-            opcode: 'operator_add',
-            inputs: {
-              NUM1: oldValue,
-              NUM2: [1, [4, '0']]
-            }
-          })], scope);
+          const numeric = this.reporter('operator_add', {
+            NUM1: oldValue,
+            NUM2: [1, [4, '0']]
+          });
+          oldValue = this.capture(numeric, scope);
         }
 
+        const opcode = expression.operator === '++' ? 'operator_add' : 'operator_subtract';
+        const value = this.reporter(opcode, {
+          NUM1: oldValue,
+          NUM2: [1, [4, '1']]
+        });
         this.append(scope, binding.set.create({
-          inputs: [[2, this.insertBlock({
-            opcode: expression.operator === '++' ? 'operator_add' : 'operator_subtract',
-            inputs: {
-              NUM1: oldValue,
-              NUM2: [1, [4, '1']]
-            }
-          })]],
+          inputs: [value],
           fields: [],
           bodies: []
         }, this));
@@ -1472,7 +1501,7 @@ class Compiler {
       }
 
       const breakIndex = state ? -1 : body.findIndex(child => child.type === NodeType.BreakStatement);
-      await this.parseASTBody(breakIndex === -1 ? body : body.slice(0, breakIndex), caseScope);
+      await this.parseStatements(breakIndex === -1 ? body : body.slice(0, breakIndex), caseScope);
 
       if (branch) {
         this.attachSubstack(branch, 'SUBSTACK', selected);
@@ -1555,7 +1584,7 @@ class Compiler {
     const bodyScope = scope.createChild();
     bodyScope.loopState = state;
     bodyScope.breakState = state;
-    let count: VariableBinding;
+    let remaining: VariableBinding;
     let testExpression: Expression;
     let test: ScratchInput;
     let condition: VariableBinding;
@@ -1569,18 +1598,12 @@ class Compiler {
 
     if (statement.type === NodeType.RepeatStatement) {
       const value = await this.parseExpression(statement.count, scope, true);
-      count = this.temporary(scope);
-      this.write(count, [2, this.insertBlock({
-        opcode: 'operator_round',
-        inputs: { NUM: value }
-      })], scope);
-      test = [2, this.insertBlock({
-        opcode: 'operator_gt',
-        inputs: {
-          OPERAND1: this.read(count),
-          OPERAND2: [1, [4, 0]]
-        }
-      })];
+      remaining = this.temporary(scope);
+      this.write(remaining, this.reporter('operator_round', { NUM: value }), scope);
+      test = this.reporter('operator_gt', {
+        OPERAND1: this.read(remaining),
+        OPERAND2: this.number(0)
+      });
     } else {
       testExpression = statement.test;
       test = this.boolean(await this.parseExpression(testExpression, scope, true));
@@ -1595,20 +1618,14 @@ class Compiler {
     let running: ScratchInput;
 
     if (state) {
-      running = [2, this.insertBlock({
-        opcode: 'operator_lt',
-        inputs: {
-          OPERAND1: this.read(state),
-          OPERAND2: [1, [4, 2]]
-        }
-      })];
-      test = [2, this.insertBlock({
-        opcode: 'operator_and',
-        inputs: {
-          OPERAND1: running,
-          OPERAND2: test
-        }
-      })];
+      running = this.reporter('operator_lt', {
+        OPERAND1: this.read(state),
+        OPERAND2: this.number(2)
+      });
+      test = this.reporter('operator_and', {
+        OPERAND1: running,
+        OPERAND2: test
+      });
     }
 
     const loop = this.append(scope, {
@@ -1622,7 +1639,7 @@ class Compiler {
       this.write(state, [1, [4, 0]], bodyScope);
     }
 
-    await this.parseASTBody(body, bodyScope);
+    await this.parseStatements(body, bodyScope);
 
     if (!this.endsWithStop(bodyScope)) {
       // Use loop bindings for updates and conditions
@@ -1633,14 +1650,12 @@ class Compiler {
         await this.parseStatement(statement.update, tailScope);
       }
 
-      if (count) {
-        this.write(count, [2, this.insertBlock({
-          opcode: 'operator_subtract',
-          inputs: {
-            NUM1: this.read(count),
-            NUM2: [1, [4, 1]]
-          }
-        })], tailScope);
+      if (remaining) {
+        const nextCount = this.reporter('operator_subtract', {
+          NUM1: this.read(remaining),
+          NUM2: this.number(1)
+        });
+        this.write(remaining, nextCount, tailScope);
       }
 
       if (condition && !this.endsWithStop(tailScope)) {
@@ -1663,7 +1678,11 @@ class Compiler {
     return loop;
   }
 
-  private async parseListTarget (target: IndexExpression | MemberExpression, scope: Scope, updating = false) {
+  private async parseListTarget (
+    target: IndexExpression | MemberExpression,
+    scope: Scope,
+    updating = false
+  ) {
     const list = await this._listOperations.resolve(target.object, scope);
 
     if (!list) {
@@ -1690,85 +1709,21 @@ class Compiler {
       case NodeType.Block: {
         const blockScope = scope.createChild();
         blockScope.lastBlock = scope.lastBlock;
-        await this.parseASTBody(statement.body, blockScope);
+        await this.parseStatements(statement.body, blockScope);
         scope.firstBlock = scope.firstBlock || blockScope.firstBlock;
         scope.lastBlock = blockScope.lastBlock;
         return scope.lastBlock;
       }
-      case NodeType.Assignment: {
-        const binding = await this.resolveBinding(statement.target, scope);
-        if (statement.target.type === NodeType.IndexExpression ||
-            (statement.target.type === NodeType.MemberExpression && !binding)) {
-          const target = statement.target;
-
-          if (target.type === NodeType.MemberExpression) {
-            if (this._types.structs.has(target.object)) {
-              throw new Error('Struct field assignment requires a writable variable.');
-            }
-            if (target.property !== 'length') {
-              throw new Error('Only the length property of a list can be assigned.');
-            }
-          }
-
-          const { read, write } = await this.parseListTarget(target, scope, true);
-          const old = statement.operator ? this.capture(await read(), scope) : null;
-          let value = await this.parseExpression(statement.value, scope, true);
-
-          if (statement.operator) {
-            value = await this.parseBinaryExpression({
-              type: NodeType.BinaryExpression,
-              operator: statement.operator,
-              left: statement.target,
-              right: statement.value
-            }, scope, [old, value]);
-          }
-
-          return write(value);
-        }
-
-        if (binding?.kind === 'object' && binding.struct) {
-          if (binding.struct.constant || statement.operator) {
-            throw new Error('This struct cannot be reassigned.');
-          }
-
-          let values = await this.parseValues(statement.value, scope);
-          if (statement.value.type === NodeType.StructLiteral) {
-            values = values.map(value => this.capture(value, scope));
-          }
-          for (const [index, field] of binding.struct.fields.entries()) {
-            this.write(field, values[index], scope);
-          }
-          return scope.lastBlock;
-        }
-
-        if (binding?.kind === 'list') {
-          if (binding.constant || statement.operator) {
-            throw new Error('This list cannot be reassigned.');
-          }
-
-          await this._listOperations.assign(binding, statement.value, scope);
-          return scope.lastBlock;
-        }
-
-        if (!binding || binding.kind !== 'variable' || !binding.set) {
-          throw new Error('This variable cannot be set.');
-        }
-
-        const expression: Expression = statement.operator ? {
-          type: NodeType.BinaryExpression,
-          operator: statement.operator,
-          left: statement.target,
-          right: statement.value
-        } : statement.value;
-        const value = await this.parseExpression(expression, scope, true);
-        return this.write(binding, value, scope);
-      }
+      case NodeType.Assignment:
+        return this.parseAssignment(statement, scope);
       case NodeType.ExpressionStatement: {
-        if (statement.expression.type !== NodeType.CallExpression && this._types.structs.has(statement.expression)) {
-          await this.parseValues(statement.expression, scope);
+        const { expression } = statement;
+        if (expression.type !== NodeType.CallExpression && this._types.structs.has(expression)) {
+          await this.parseValues(expression, scope);
           return scope.lastBlock;
         }
-        const result = await this.parseExpression(statement.expression, scope);
+
+        const result = await this.parseExpression(expression, scope);
 
         if (Array.isArray(result)) {
           this.capture(result, scope);
@@ -1808,10 +1763,10 @@ class Compiler {
         await this.parseSubstack(statement.consequent.body, scope, ifId);
 
         if (hasElse) {
-          const altBody = statement.alternate.type === NodeType.Block
+          const alternateBody = statement.alternate.type === NodeType.Block
             ? statement.alternate.body
             : [statement.alternate];
-          await this.parseSubstack(altBody, scope, ifId, 'SUBSTACK2');
+          await this.parseSubstack(alternateBody, scope, ifId, 'SUBSTACK2');
         }
         return ifId;
       }
@@ -1828,65 +1783,8 @@ class Compiler {
         scope.lastBlock = forScope.lastBlock;
         return scope.lastBlock;
       }
-      case NodeType.VarDeclaration: {
-        const type = this._types.structs.get(statement);
-        if (type) {
-          const values = await this.parseValues(statement.init, scope);
-          const fields = type.fields.map((field, index) => {
-            const variable = scope.defineVariable(`${statement.name}.${field}`, uid());
-            const storage = variable.storage;
-            if (storage) {
-              this.root.variables[storage.id] = [storage.name, ''];
-            }
-            this.write(variable, values[index], scope);
-            if (statement.constant) {
-              delete variable.set;
-            }
-            return variable;
-          });
-          scope.define(statement.name, this.structBinding(type, fields, statement.constant));
-          return scope.lastBlock;
-        }
-
-        if (statement.list) {
-          const list = this._listOperations.create(statement.name, statement.constant);
-          await this._listOperations.assign(list, statement.init, scope, true);
-          scope.define(statement.name, list);
-          return scope.lastBlock;
-        }
-
-        if (statement.init) {
-          const binding = await this.resolveBinding(statement.init, scope);
-          if (binding?.kind === 'function' || (binding?.kind === 'object' && !binding.struct)) {
-            scope.define(statement.name, binding);
-            return scope.lastBlock;
-          }
-        }
-        const value = statement.init
-          ? await this.parseExpression(statement.init, scope, true)
-          : [1, [10, '']] as ScratchInput;
-        const newVarId = uid();
-        const variable = scope.defineVariable(statement.name, newVarId);
-        variable.boolean = this._writes[statement.name] !== false && this.isBoolean(value);
-
-        if (!Object.hasOwn(this._writes, statement.name) && statement.init) {
-          variable.constantValue = this.constantValue(statement.init, scope) || undefined;
-        }
-
-        if (variable.storage) {
-          const target = scope.internal && !scope.isFunction ? this.stage : this.root;
-          target.variables[newVarId] = [variable.storage.name, ''];
-        }
-
-        const declarationOnly = scope.internal && scope.parent === this._globals && !statement.init;
-        const assignment = declarationOnly ? scope.lastBlock : this.write(variable, value, scope);
-
-        if (statement.constant) {
-          delete variable.set;
-        }
-
-        return assignment;
-      }
+      case NodeType.VarDeclaration:
+        return this.parseVarDeclaration(statement, scope);
       case NodeType.ReturnStatement: {
         if (!scope.isFunction) {
           throw new Error('Return statements can only be used inside of functions.');
@@ -1895,10 +1793,17 @@ class Compiler {
         const values = statement.value
           ? await this.parseValues(statement.value, scope)
           : [[1, [10, '']]] as ScratchInput[];
-        for (let index = 0; index < Math.min(values.length, scope.results.length); index++) {
+        const resultCount = Math.min(values.length, scope.results.length);
+        for (let index = 0; index < resultCount; index++) {
           this.write(scope.results[index], values[index], scope);
         }
-        return this.appendEndBlock(scope, control.thread.stop.create(), undefined, ProcedureExit.Return);
+
+        return this.appendEndBlock(
+          scope,
+          control.thread.stop.create(),
+          undefined,
+          ProcedureExit.Return
+        );
       }
       case NodeType.TryStatement:
         return this.parseTry(statement, scope);
@@ -1971,6 +1876,141 @@ class Compiler {
     }
   }
 
+  private async parseAssignment (
+    statement: Extract<Statement, { type: NodeType.Assignment }>,
+    scope: Scope
+  ): Promise<ScratchInput> {
+    const binding = await this.resolveBinding(statement.target, scope);
+    if (statement.target.type === NodeType.IndexExpression ||
+        (statement.target.type === NodeType.MemberExpression && !binding)) {
+      const target = statement.target;
+
+      if (target.type === NodeType.MemberExpression) {
+        if (this._types.structs.has(target.object)) {
+          throw new Error('Struct field assignment requires a writable variable.');
+        }
+        if (target.property !== 'length') {
+          throw new Error('Only the length property of a list can be assigned.');
+        }
+      }
+
+      const { read, write } = await this.parseListTarget(target, scope, true);
+      const old = statement.operator ? this.capture(await read(), scope) : null;
+      let value = await this.parseExpression(statement.value, scope, true);
+
+      if (statement.operator) {
+        value = await this.parseBinaryExpression({
+          type: NodeType.BinaryExpression,
+          operator: statement.operator,
+          left: statement.target,
+          right: statement.value
+        }, scope, [old, value]);
+      }
+
+      return write(value);
+    }
+
+    if (binding?.kind === 'object' && binding.struct) {
+      if (binding.struct.constant || statement.operator) {
+        throw new Error('This struct cannot be reassigned.');
+      }
+
+      let values = await this.parseValues(statement.value, scope);
+      if (statement.value.type === NodeType.StructLiteral) {
+        values = values.map(value => this.capture(value, scope));
+      }
+      for (const [index, field] of binding.struct.fields.entries()) {
+        this.write(field, values[index], scope);
+      }
+      return scope.lastBlock;
+    }
+
+    if (binding?.kind === 'list') {
+      if (binding.constant || statement.operator) {
+        throw new Error('This list cannot be reassigned.');
+      }
+
+      await this._listOperations.assign(binding, statement.value, scope);
+      return scope.lastBlock;
+    }
+
+    if (!binding || binding.kind !== 'variable' || !binding.set) {
+      throw new Error('This variable cannot be set.');
+    }
+
+    const expression: Expression = statement.operator ? {
+      type: NodeType.BinaryExpression,
+      operator: statement.operator,
+      left: statement.target,
+      right: statement.value
+    } : statement.value;
+    const value = await this.parseExpression(expression, scope, true);
+    return this.write(binding, value, scope);
+  }
+
+  private async parseVarDeclaration (
+    statement: VarDeclaration,
+    scope: Scope
+  ): Promise<ScratchInput> {
+    const type = this._types.structs.get(statement);
+    if (type) {
+      const values = await this.parseValues(statement.init, scope);
+      const fields = type.fields.map((field, index) => {
+        const variable = scope.defineVariable(`${statement.name}.${field}`, uid());
+        const storage = variable.storage;
+        if (storage) {
+          this.root.variables[storage.id] = [storage.name, ''];
+        }
+        this.write(variable, values[index], scope);
+        if (statement.constant) {
+          delete variable.set;
+        }
+        return variable;
+      });
+      scope.define(statement.name, this.structBinding(type, fields, statement.constant));
+      return scope.lastBlock;
+    }
+
+    if (statement.list) {
+      const list = this._listOperations.create(statement.name, statement.constant);
+      await this._listOperations.assign(list, statement.init, scope, true);
+      scope.define(statement.name, list);
+      return scope.lastBlock;
+    }
+
+    if (statement.init) {
+      const binding = await this.resolveBinding(statement.init, scope);
+      if (binding?.kind === 'function' || (binding?.kind === 'object' && !binding.struct)) {
+        scope.define(statement.name, binding);
+        return scope.lastBlock;
+      }
+    }
+    const value = statement.init
+      ? await this.parseExpression(statement.init, scope, true)
+      : [1, [10, '']] as ScratchInput;
+    const variableId = uid();
+    const variable = scope.defineVariable(statement.name, variableId);
+    variable.boolean = this._writes[statement.name] !== false && this.isBoolean(value);
+
+    if (!Object.hasOwn(this._writes, statement.name) && statement.init) {
+      variable.constantValue = this.constantValue(statement.init, scope) || undefined;
+    }
+
+    if (variable.storage) {
+      const target = scope.internal && !scope.isFunction ? this.stage : this.root;
+      target.variables[variableId] = [variable.storage.name, ''];
+    }
+
+    const declarationOnly = scope.internal && scope.parent === this._globals && !statement.init;
+    const assignment = declarationOnly ? scope.lastBlock : this.write(variable, value, scope);
+
+    if (statement.constant) {
+      delete variable.set;
+    }
+
+    return assignment;
+  }
+
   throwValue (value: ScratchInput, scope: Scope) {
     if (scope.frame?.canThrow) {
       this.write(scope.frame.result, value, scope);
@@ -2008,7 +2048,7 @@ class Compiler {
       this.write(frame.result, [1, [10, '']], bodyScope);
     }
 
-    await this.parseASTBody(statement.body.body, bodyScope);
+    await this.parseStatements(statement.body.body, bodyScope);
     frame.finalize();
 
     const frameIndex = await frame.allocate(scope);
@@ -2052,7 +2092,7 @@ class Compiler {
       this.write(variable, value, handler);
     }
 
-    await this.parseASTBody(statement.handler.body, handler);
+    await this.parseStatements(statement.handler.body, handler);
     this.attachSubstack(branch, 'SUBSTACK', handler);
     return branch;
   }
@@ -2129,22 +2169,22 @@ class Compiler {
       structParams,
       create: (args, compiler) => create(args, compiler),
       compile: async () => {
-        const funcScope = scope.createChild(true);
+        const functionScope = scope.createChild(true);
         const handlesExit = !scope.internal;
         const canStop = this._usesThread && handlesExit;
         const canThrow = this._usesThrow && handlesExit;
-        funcScope.frame = !binding.shared &&
+        functionScope.frame = !binding.shared &&
           (canStop || canThrow || this.needsFrame(expression.body))
           ? new CallFrame(this, canStop, canThrow)
           : null;
 
-        if (funcScope.frame) {
-          funcScope.results = Array.from({ length: resultCount }, (_, index) =>
-            index === 0 ? funcScope.frame.result : funcScope.frame.variable()
+        if (functionScope.frame) {
+          functionScope.results = Array.from({ length: resultCount }, (_, index) =>
+            index === 0 ? functionScope.frame.result : functionScope.frame.allocateSlot()
           );
         } else if (binding.shared) {
-          funcScope.results = Array.from({ length: resultCount }, (_, index) => {
-            const result = funcScope.defineVariable(`$result${index || ''}`, uid());
+          functionScope.results = Array.from({ length: resultCount }, (_, index) => {
+            const result = functionScope.defineVariable(`$result${index || ''}`, uid());
             const storage = result.storage;
             this.root.variables[storage.id] = [storage.name, ''];
             return result;
@@ -2155,52 +2195,52 @@ class Compiler {
         for (const [index, parameter] of params.entries()) {
           const type = structParams[index];
           if (!type) {
-            const name = `${parameter}@${funcScope.id}`;
+            const name = `${parameter}@${functionScope.id}`;
             args.push(name);
-            funcScope.defineParam(parameter, name);
+            functionScope.defineParameter(parameter, name);
             continue;
           }
 
           const fields = type.fields.map(field => {
             const name = `${parameter}.${field}`;
-            const argument = `${name}@${funcScope.id}`;
+            const argument = `${name}@${functionScope.id}`;
             args.push(argument);
-            return funcScope.defineParam(name, argument);
+            return functionScope.defineParameter(name, argument);
           });
-          funcScope.define(parameter, this.structBinding(type, fields, true));
+          functionScope.define(parameter, this.structBinding(type, fields, true));
         }
 
         const captures = scope.parameters;
-        const hidden = funcScope.frame ? [funcScope.frame.parameter] : [];
+        const hidden = functionScope.frame ? [functionScope.frame.parameter] : [];
         const parameters = [...args, ...hidden, ...captures];
         const { definition, call } = this.createProcedure(
           `${name}@${scope.id}`, parameters, expression.warp
         );
-        funcScope.lastBlock = definition;
-        funcScope.parameters = parameters;
+        functionScope.lastBlock = definition;
+        functionScope.parameters = parameters;
 
         if (list) {
-          funcScope.define(expression.params.at(-1), list);
+          functionScope.define(expression.params.at(-1), list);
         }
 
         binding.procedure = {
-          frame: funcScope.frame,
+          frame: functionScope.frame,
           captures,
-          results: funcScope.results
+          results: functionScope.results
         };
         create = ({ inputs }) => call(inputs);
 
-        if (funcScope.frame?.canStop || funcScope.frame?.canThrow) {
-          this.write(funcScope.frame.exitStatus(), this.number(ProcedureExit.None), funcScope);
+        if (functionScope.frame?.canStop || functionScope.frame?.canThrow) {
+          this.write(functionScope.frame.exitStatus(), this.number(ProcedureExit.None), functionScope);
         }
 
-        if (funcScope.frame && !resultType) {
-          this.write(funcScope.frame.result, [1, [10, '']], funcScope);
+        if (functionScope.frame && !resultType) {
+          this.write(functionScope.frame.result, [1, [10, '']], functionScope);
         }
 
-        await this.parseASTBody(expression.body.body, funcScope);
+        await this.parseStatements(expression.body.body, functionScope);
 
-        funcScope.frame?.finalize();
+        functionScope.frame?.finalize();
       }
     };
 
@@ -2217,7 +2257,7 @@ class Compiler {
     return binding;
   }
 
-  async parseASTBody (body: Statement[], scope: Scope) {
+  async parseStatements (body: Statement[], scope: Scope) {
     for (let i = 0; i < body.length; i++) {
       const statement = body[i];
       const values = scope.temporaries.values;
@@ -2265,7 +2305,7 @@ class Compiler {
         });
         const continuation = scope.createChild();
         continuation.bindings = scope.bindings;
-        await this.parseASTBody(body.slice(i + 1), continuation);
+        await this.parseStatements(body.slice(i + 1), continuation);
         this.attachSubstack(guard, 'SUBSTACK', continuation);
         break;
       }
@@ -2279,7 +2319,7 @@ class Compiler {
     return fs.realpathSync(resolvedPath);
   }
 
-  loadPrograms (filePath: string): Program {
+  loadProgram (filePath: string): Program {
     return this.loadModule(filePath).program;
   }
 
@@ -2310,19 +2350,24 @@ class Compiler {
     return module;
   }
 
-  private hasRuntimeImport (statement: Extract<Statement, { type: NodeType.ImportStatement }>) {
+  private hasRuntimeImport (statement: ImportStatement) {
     const names = this._types.imports.get(statement) || statement.names;
     return !statement.typeOnly && (!statement.names.length || names.length > 0);
   }
 
-  private runtimePrograms (module: TypeModule, programs: Record<string, Program>) {
+  private isFileImport (statement: Statement): statement is ImportStatement {
+    return statement.type === NodeType.ImportStatement &&
+      this.hasRuntimeImport(statement) &&
+      !Object.hasOwn(extensions, statement.source);
+  }
+
+  private collectRuntimePrograms (module: TypeModule, programs: Record<string, Program>) {
     programs[module.file] = module.program;
     for (const statement of module.program.body) {
-      if (statement.type === NodeType.ImportStatement && this.hasRuntimeImport(statement) &&
-          !Object.hasOwn(extensions, statement.source)) {
+      if (this.isFileImport(statement)) {
         const file = this.resolveImport(statement.source, module.file);
         if (!programs[file]) {
-          this.runtimePrograms(this.loadModule(file), programs);
+          this.collectRuntimePrograms(this.loadModule(file), programs);
         }
       }
     }
@@ -2384,7 +2429,7 @@ class Compiler {
   }
 
   async compileFile (filePath: string, internal = false) {
-    const ast = this.loadPrograms(filePath);
+    const program = this.loadProgram(filePath);
     filePath = fs.realpathSync(filePath);
 
     const key = internal ? `internal:${filePath}` : filePath;
@@ -2409,11 +2454,10 @@ class Compiler {
     this._currentFile = filePath;
 
     try {
-      ast.body.forEach(statement => this.scanWrites(statement));
+      program.body.forEach(statement => this.scanWrites(statement));
 
-      for (const statement of ast.body) {
-        if (statement.type === NodeType.ImportStatement && this.hasRuntimeImport(statement) &&
-            !Object.hasOwn(extensions, statement.source)) {
+      for (const statement of program.body) {
+        if (this.isFileImport(statement)) {
           // Imports compile without internal access
           await this.compileFile(this.resolveImport(statement.source));
         }
@@ -2427,7 +2471,7 @@ class Compiler {
       }
 
       fileScope.lastBlock = this._startup.lastBlock;
-      await this.parseASTBody(ast.body, fileScope);
+      await this.parseStatements(program.body, fileScope);
       this._startup.lastBlock = fileScope.lastBlock;
       this._compiledFiles[key] = 'done';
       return fileScope;
@@ -2446,7 +2490,7 @@ class Compiler {
     }
 
     const runtime: Record<string, Program> = Object.create(null);
-    this.runtimePrograms(entry, runtime);
+    this.collectRuntimePrograms(entry, runtime);
 
     const programs = Object.values(runtime);
     this._usesThread = programs.some(program => this.usesThread(program));
@@ -2506,11 +2550,9 @@ class Compiler {
     this.pruneBlocks();
 
     const projectJSON = this.toJSON();
-    const emptySVG = fs.readFileSync(
-      new URL('./assets/927d672925e7b99f7813735c484c6922.svg', import.meta.url)
-    );
+    const costume = fs.readFileSync(new URL(`./assets/${EMPTY_COSTUME_FILE}`, import.meta.url));
     this._zip.file('project.json', JSON.stringify(projectJSON));
-    this._zip.file('927d672925e7b99f7813735c484c6922.svg', emptySVG);
+    this._zip.file(EMPTY_COSTUME_FILE, costume);
   }
 
   toJSON () {

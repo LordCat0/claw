@@ -112,7 +112,10 @@ export default {
         opcode: 'event_whentouchingobject',
         inputs: {
           TOUCHINGOBJECTMENU: compiler.menu(
-            'sensing_touchingobjectmenu', 'TOUCHINGOBJECTMENU', fields[0], inputs[0]
+            'sensing_touchingobjectmenu',
+            'TOUCHINGOBJECTMENU',
+            fields[0],
+            inputs[0]
           )
         },
         topLevel: true,

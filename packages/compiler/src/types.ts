@@ -123,17 +123,30 @@ export type Statement =
   | StructDeclaration;
 
 export type TypeSyntax =
-  | { kind: 'reference'; name: string; args: TypeSyntax[] }
-  | { kind: 'literal'; value: string | number | boolean }
-  | { kind: 'array'; element: TypeSyntax }
-  | { kind: 'union'; members: TypeSyntax[] }
+  | {
+    kind: 'reference';
+    name: string;
+    args: TypeSyntax[];
+  }
+  | {
+    kind: 'literal';
+    value: string | number | boolean;
+  }
+  | {
+    kind: 'array';
+    element: TypeSyntax;
+  }
+  | {
+    kind: 'union';
+    members: TypeSyntax[];
+  }
   | {
     kind: 'function';
     params: {
       name: string;
-      annotation: TypeSyntax 
+      annotation: TypeSyntax;
     }[];
-    result: TypeSyntax
+    result: TypeSyntax;
   };
 
 export interface TypeDeclaration {
@@ -375,7 +388,7 @@ export interface Identifier {
 
 type ScratchValue = string | number | boolean | null | ScratchValue[];
 
-export type ScratchInput = string | [number, ScratchValue, ...ScratchValue[]];
+export type ScratchInput = string | [mode: number, value: ScratchValue, ...shadows: ScratchValue[]];
 
 export interface Mutation {
   tagName: string;

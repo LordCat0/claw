@@ -21,7 +21,12 @@ export default {
     create: ({ inputs, fields }, compiler) => ({
       opcode: 'videoSensing_videoOn',
       inputs: {
-        ATTRIBUTE: compiler.menu('videoSensing_menu_ATTRIBUTE', 'ATTRIBUTE', fields[0], inputs[0]),
+        ATTRIBUTE: compiler.menu(
+          'videoSensing_menu_ATTRIBUTE',
+          'ATTRIBUTE',
+          fields[0],
+          inputs[0]
+        ),
         SUBJECT: compiler.menu('videoSensing_menu_SUBJECT', 'SUBJECT', fields[1], inputs[1])
       }
     })
@@ -34,7 +39,10 @@ export default {
       opcode: 'videoSensing_videoToggle',
       inputs: {
         VIDEO_STATE: compiler.menu(
-          'videoSensing_menu_VIDEO_STATE', 'VIDEO_STATE', fields[0], inputs[0]
+          'videoSensing_menu_VIDEO_STATE',
+          'VIDEO_STATE',
+          fields[0],
+          inputs[0]
         )
       }
     })

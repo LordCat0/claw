@@ -56,7 +56,10 @@ export default {
       inputs: {
         MOTOR_ID: compiler.menu('wedo2_menu_MOTOR_ID', 'MOTOR_ID', fields[0], inputs[0]),
         MOTOR_DIRECTION: compiler.menu(
-          'wedo2_menu_MOTOR_DIRECTION', 'MOTOR_DIRECTION', fields[1], inputs[1]
+          'wedo2_menu_MOTOR_DIRECTION',
+          'MOTOR_DIRECTION',
+          fields[1],
+          inputs[1]
         )
       }
     })
@@ -106,7 +109,10 @@ export default {
       opcode: 'wedo2_whenTilted',
       inputs: {
         TILT_DIRECTION_ANY: compiler.menu(
-          'wedo2_menu_TILT_DIRECTION_ANY', 'TILT_DIRECTION_ANY', fields[0], inputs[0]
+          'wedo2_menu_TILT_DIRECTION_ANY',
+          'TILT_DIRECTION_ANY',
+          fields[0],
+          inputs[0]
         )
       },
       topLevel: true,
@@ -129,7 +135,10 @@ export default {
       opcode: 'wedo2_isTilted',
       inputs: {
         TILT_DIRECTION_ANY: compiler.menu(
-          'wedo2_menu_TILT_DIRECTION_ANY', 'TILT_DIRECTION_ANY', fields[0], inputs[0]
+          'wedo2_menu_TILT_DIRECTION_ANY',
+          'TILT_DIRECTION_ANY',
+          fields[0],
+          inputs[0]
         )
       }
     })
@@ -142,7 +151,10 @@ export default {
       opcode: 'wedo2_getTiltAngle',
       inputs: {
         TILT_DIRECTION: compiler.menu(
-          'wedo2_menu_TILT_DIRECTION', 'TILT_DIRECTION', fields[0], inputs[0]
+          'wedo2_menu_TILT_DIRECTION',
+          'TILT_DIRECTION',
+          fields[0],
+          inputs[0]
         )
       }
     })
