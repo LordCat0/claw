@@ -3,7 +3,11 @@ import path from 'node:path';
 import JSZip from 'jszip';
 import Tokenizer from './tokenizer.ts';
 import ASTBuilder from './ast.ts';
-import TypeChecker, { type TypeModule } from './type-checker.ts';
+import TypeChecker, {
+  structType,
+  type StructType,
+  type TypeModule
+} from './type-checker.ts';
 import {
   newSprite,
   newBlock
@@ -50,6 +54,7 @@ import {
   type IndexExpression,
   type ListBinding,
   type MemberExpression,
+  type ObjectBinding,
   type VariableBinding,
   type Program
 } from './types.ts';
@@ -577,7 +582,8 @@ class Compiler {
         node.type === NodeType.BreakStatement || node.type === NodeType.ContinueStatement ||
         node.type === NodeType.CallExpression || node.type === NodeType.UpdateExpression ||
         node.type === NodeType.ArrayExpression || node.type === NodeType.IndexExpression ||
-        (node.type === NodeType.MemberExpression && node.property === 'length')) {
+        (node.type === NodeType.MemberExpression && node.property === 'length' &&
+          !this._types.structs.has(node.object))) {
       return true;
     }
 
@@ -638,6 +644,17 @@ class Compiler {
     asValue = false,
     values?: ScratchInput[]
   ): Promise<ScratchInput> {
+    const [result] = await this.emitCall(definition, expressions, scope, asValue, values);
+    return result;
+  }
+
+  private async emitCall (
+    definition: FunctionBinding,
+    expressions: Expression[],
+    scope: Scope,
+    asValue: boolean,
+    values?: ScratchInput[]
+  ): Promise<ScratchInput[]> {
     if (definition.blockType === 'hat' && (scope.isFunction || scope.inTry)) {
       throw new Error(scope.isFunction
         ? 'Event handlers must be declared outside functions.'
@@ -669,9 +686,21 @@ class Compiler {
       bodies: []
     };
 
+    let offset = 0;
     for (let i = 0; i < definition.args.length; i++) {
       const argument = definition.args[i];
       const expression = expressions[i];
+      const input = i + offset;
+
+      if (definition.structParams?.[i]) {
+        const fields = await this.parseValues(expression, scope);
+        const capture = expressions.slice(i + 1).some(value => this.needsFrame(value, true, scope));
+        for (const [index, field] of fields.entries()) {
+          args.inputs[input + index] = capture ? this.capture(field, scope) : field;
+        }
+        offset += fields.length - 1;
+        continue;
+      }
 
       if (values && typeof argument === 'number') {
         args.inputs[i] = values[i];
@@ -694,13 +723,13 @@ class Compiler {
           expression.type === NodeType.StringLiteral ||
           expression.type === NodeType.NumberLiteral
         ) {
-          args.inputs[i] = [1, [argument, String(expression.value)]];
+          args.inputs[input] = [1, [argument, String(expression.value)]];
         } else {
-          args.inputs[i] = await this.parseExpression(expression, scope, true);
+          args.inputs[input] = await this.parseExpression(expression, scope, true);
 
           if ((definition.procedure?.frame && this.needsFrame(expression, true, scope)) ||
               expressions.slice(i + 1).some(value => this.needsFrame(value, true, scope))) {
-            args.inputs[i] = this.capture(args.inputs[i], scope);
+            args.inputs[input] = this.capture(args.inputs[input], scope);
           }
         }
 
@@ -818,11 +847,11 @@ class Compiler {
         scope.temporaries.next = 0;
       }
 
-      return scope.lastBlock;
+      return [scope.lastBlock];
     }
 
     if (definition.blockType === 'reporter') {
-      return [2, this.insertBlock(block)];
+      return [[2, this.insertBlock(block)]];
     }
 
     if (block.opcode === 'control_delete_this_clone') {
@@ -838,9 +867,10 @@ class Compiler {
       const status = frame.canStop || frame.canThrow
         ? this.capture(this.read(frame.exitStatus(frameIndex)), scope)
         : null;
-      const result = asValue || frame.canThrow
-        ? this.capture(frame.readResult(frameIndex), scope)
-        : null;
+      const resultCount = Math.max(asValue ? procedure.results.length : 0, Number(frame.canThrow));
+      const results = Array.from({ length: resultCount }, (_, index) =>
+        this.capture(frame.readResult(frameIndex, index), scope)
+      );
       await frame.release(scope, frameIndex);
 
       if (frame.canStop) {
@@ -857,22 +887,22 @@ class Compiler {
           }
         });
         const failure = scope.createChild();
-        this.throwValue(result, failure);
+        this.throwValue(results[0], failure);
         this.attachSubstack(branch, 'SUBSTACK', failure);
       }
 
-      return asValue ? result : scope.lastBlock;
+      return asValue ? results : [scope.lastBlock];
     }
 
     if (definition.shared && asValue) {
-      return this.capture(this.read(procedure.result), scope);
+      return procedure.results.map(result => this.capture(this.read(result), scope));
     }
 
     if (asValue && procedure) {
-      return [1, [10, '']];
+      return [[1, [10, '']]];
     }
 
-    return scope.lastBlock;
+    return [scope.lastBlock];
   }
 
   async parseSubstack (
@@ -1039,16 +1069,19 @@ class Compiler {
     expression: ConditionalExpression,
     scope: Scope,
     asValue: boolean
-  ): Promise<ScratchInput> {
+  ): Promise<ScratchInput[]> {
     const constant = this.constantValue(expression.test, scope);
 
     if (constant) {
       const selected = this.truthy(constant.value) ? expression.consequent : expression.alternate;
-      return this.parseExpression(selected, scope, asValue);
+      return asValue ? this.parseValues(selected, scope) : [await this.parseExpression(selected, scope)];
     }
 
     const test = await this.parseExpression(expression.test, scope, true);
-    const result = asValue ? this.temporary(scope) : null;
+    const type = this._types.structs.get(expression);
+    const results = asValue
+      ? Array.from({ length: type ? type.fields.length : 1 }, () => this.temporary(scope))
+      : null;
     const branch = this.append(scope, {
       opcode: 'control_if_else',
       inputs: {
@@ -1062,9 +1095,11 @@ class Compiler {
     ] as const) {
       const branchScope = scope.createChild();
 
-      if (result) {
-        const value = await this.parseExpression(selected, branchScope, true);
-        this.write(result, value, branchScope);
+      if (results) {
+        const values = await this.parseValues(selected, branchScope);
+        for (const [index, result] of results.entries()) {
+          this.write(result, values[index], branchScope);
+        }
       } else {
         await this.parseStatement({
           type: NodeType.ExpressionStatement,
@@ -1075,7 +1110,7 @@ class Compiler {
       this.attachSubstack(branch, input, branchScope);
     }
 
-    return result ? this.read(result) : scope.lastBlock;
+    return results ? results.map(result => this.read(result)) : [scope.lastBlock];
   }
 
   async parseUnaryExpression (
@@ -1098,11 +1133,95 @@ class Compiler {
     });
   }
 
+  private structBinding (type: StructType, fields: VariableBinding[], constant: boolean): ObjectBinding {
+    const members: Bindings = Object.create(null);
+    for (const [name, property] of Object.entries(type.properties)) {
+      const { offset, width } = property;
+      const nested = structType(property.type);
+      members[name] = nested
+        ? this.structBinding(nested, fields.slice(offset, offset + width), constant)
+        : fields[offset];
+    }
+
+    return {
+      kind: 'object',
+      members,
+      struct: {
+        type,
+        fields,
+        constant
+      }
+    };
+  }
+
+  private async parseValues (
+    expression: Expression,
+    scope: Scope
+  ): Promise<ScratchInput[]> {
+    const type = this._types.structs.get(expression);
+    if (!type) {
+      return [await this.parseExpression(expression, scope, true)];
+    }
+
+    switch (expression.type) {
+      case NodeType.StructLiteral: {
+        const values: ScratchInput[] = [];
+        let lastEffect = expression.properties.length - 1;
+        while (
+          lastEffect >= 0 &&
+          !this.needsFrame(expression.properties[lastEffect].value, true, scope)
+        ) {
+          lastEffect--;
+        }
+
+        for (const [index, { name, value }] of expression.properties.entries()) {
+          const { offset } = type.properties[name];
+          const fields = await this.parseValues(value, scope);
+          for (const [field, input] of fields.entries()) {
+            values[offset + field] = index < lastEffect ?
+              this.capture(input, scope) : input;
+          }
+        }
+        return values;
+      }
+      case NodeType.ConditionalExpression:
+        return this.parseConditionalExpression(expression, scope, true);
+      case NodeType.CallExpression: {
+        const binding = await this.resolveBinding(expression.callee, scope);
+        if (binding?.kind !== 'function') {
+          throw new Error('Expected a function returning a struct.');
+        }
+        return this.emitCall(binding, expression.arguments, scope, true);
+      }
+      default: {
+        const binding = await this.resolveBinding(expression, scope);
+        if (binding?.kind === 'object' && binding.struct) {
+          return binding.struct.fields.map(field => this.read(field));
+        }
+        if (expression.type === NodeType.MemberExpression) {
+          return this.parseStructMember(expression, scope);
+        }
+        throw new Error('Expected a struct value.');
+      }
+    }
+  }
+
+  private async parseStructMember (expression: MemberExpression, scope: Scope) {
+    const type = this._types.structs.get(expression.object);
+    const { offset, width } = type.properties[expression.property];
+    const values = await this.parseValues(expression.object, scope);
+    return values.slice(offset, offset + width);
+  }
+
   async parseExpression (
     expression: Expression,
     scope: Scope,
     asValue = false
   ): Promise<ScratchInput> {
+    if (asValue && this._types.structs.has(expression)) {
+      throw new Error('Expected a scalar value.');
+    }
+
     const constant = this.constantValue(expression, scope);
 
     if (constant && constant !== expression) {
@@ -1112,6 +1231,8 @@ class Compiler {
     switch (expression.type) {
       case NodeType.ArrayExpression:
         throw new Error('Use the list keyword to declare a list.');
+      case NodeType.StructLiteral:
+        throw new Error('A struct literal requires a struct type.');
       case NodeType.IndexExpression: {
         const { read } = await this.parseListTarget(expression, scope);
         return read();
@@ -1149,7 +1270,8 @@ class Compiler {
         return this.parseBinaryExpression(expression, scope);
       }
       case NodeType.ConditionalExpression: {
-        return this.parseConditionalExpression(expression, scope, asValue);
+        const [result] = await this.parseConditionalExpression(expression, scope, asValue);
+        return result;
       }
       case NodeType.UnaryExpression: {
         return this.parseUnaryExpression(expression, scope);
@@ -1169,6 +1291,11 @@ class Compiler {
         const binding = await this.resolveBinding(expression, scope);
 
         if (!binding || binding.kind !== 'variable') {
+          if (expression.type === NodeType.MemberExpression && this._types.structs.has(expression.object)) {
+            const [value] = await this.parseStructMember(expression, scope);
+            return value;
+          }
+
           if (expression.type === NodeType.MemberExpression && expression.property === 'length') {
             const { read } = await this.parseListTarget(expression, scope);
             return read();
@@ -1569,13 +1696,18 @@ class Compiler {
         return scope.lastBlock;
       }
       case NodeType.Assignment: {
+        const binding = await this.resolveBinding(statement.target, scope);
         if (statement.target.type === NodeType.IndexExpression ||
-            (statement.target.type === NodeType.MemberExpression &&
-              !(await this.resolveBinding(statement.target, scope)))) {
+            (statement.target.type === NodeType.MemberExpression && !binding)) {
           const target = statement.target;
 
-          if (target.type === NodeType.MemberExpression && target.property !== 'length') {
-            throw new Error('Only the length property of a list can be assigned.');
+          if (target.type === NodeType.MemberExpression) {
+            if (this._types.structs.has(target.object)) {
+              throw new Error('Struct field assignment requires a writable variable.');
+            }
+            if (target.property !== 'length') {
+              throw new Error('Only the length property of a list can be assigned.');
+            }
           }
 
           const { read, write } = await this.parseListTarget(target, scope, true);
@@ -1594,7 +1726,20 @@ class Compiler {
           return write(value);
         }
 
-        const binding = await this.resolveBinding(statement.target, scope);
+        if (binding?.kind === 'object' && binding.struct) {
+          if (binding.struct.constant || statement.operator) {
+            throw new Error('This struct cannot be reassigned.');
+          }
+
+          let values = await this.parseValues(statement.value, scope);
+          if (statement.value.type === NodeType.StructLiteral) {
+            values = values.map(value => this.capture(value, scope));
+          }
+          for (const [index, field] of binding.struct.fields.entries()) {
+            this.write(field, values[index], scope);
+          }
+          return scope.lastBlock;
+        }
 
         if (binding?.kind === 'list') {
           if (binding.constant || statement.operator) {
@@ -1619,6 +1764,10 @@ class Compiler {
         return this.write(binding, value, scope);
       }
       case NodeType.ExpressionStatement: {
+        if (statement.expression.type !== NodeType.CallExpression && this._types.structs.has(statement.expression)) {
+          await this.parseValues(statement.expression, scope);
+          return scope.lastBlock;
+        }
         const result = await this.parseExpression(statement.expression, scope);
 
         if (Array.isArray(result)) {
@@ -1680,6 +1829,25 @@ class Compiler {
         return scope.lastBlock;
       }
       case NodeType.VarDeclaration: {
+        const type = this._types.structs.get(statement);
+        if (type) {
+          const values = await this.parseValues(statement.init, scope);
+          const fields = type.fields.map((field, index) => {
+            const variable = scope.defineVariable(`${statement.name}.${field}`, uid());
+            const storage = variable.storage;
+            if (storage) {
+              this.root.variables[storage.id] = [storage.name, ''];
+            }
+            this.write(variable, values[index], scope);
+            if (statement.constant) {
+              delete variable.set;
+            }
+            return variable;
+          });
+          scope.define(statement.name, this.structBinding(type, fields, statement.constant));
+          return scope.lastBlock;
+        }
+
         if (statement.list) {
           const list = this._listOperations.create(statement.name, statement.constant);
           await this._listOperations.assign(list, statement.init, scope, true);
@@ -1689,7 +1857,7 @@ class Compiler {
 
         if (statement.init) {
           const binding = await this.resolveBinding(statement.init, scope);
-          if (binding?.kind === 'function' || binding?.kind === 'object') {
+          if (binding?.kind === 'function' || (binding?.kind === 'object' && !binding.struct)) {
             scope.define(statement.name, binding);
             return scope.lastBlock;
           }
@@ -1724,10 +1892,12 @@ class Compiler {
           throw new Error('Return statements can only be used inside of functions.');
         }
 
-        const value = statement.value
-          ? await this.parseExpression(statement.value, scope, true)
-          : [1, [10, '']] as ScratchInput;
-        this.write(scope.result, value, scope);
+        const values = statement.value
+          ? await this.parseValues(statement.value, scope)
+          : [[1, [10, '']]] as ScratchInput[];
+        for (let index = 0; index < Math.min(values.length, scope.results.length); index++) {
+          this.write(scope.results[index], values[index], scope);
+        }
         return this.appendEndBlock(scope, control.thread.stop.create(), undefined, ProcedureExit.Return);
       }
       case NodeType.TryStatement:
@@ -1781,7 +1951,7 @@ class Compiler {
           throw new Error('Exports are only allowed at module scope.');
         }
 
-        this._exports[this._currentFile] = this._exports[this._currentFile] || {};
+        this._exports[this._currentFile] = this._exports[this._currentFile] || Object.create(null);
         for (const name of this._types.exports.get(statement) || statement.names) {
           const binding = scope.resolve(name);
           if (!binding) {
@@ -1792,6 +1962,7 @@ class Compiler {
         return scope.lastBlock;
       }
       case NodeType.TypeDeclaration:
+      case NodeType.StructDeclaration:
         return scope.lastBlock;
       case NodeType.FunctionDeclaration: {
         await this.parseFunction(statement, scope);
@@ -1946,11 +2117,16 @@ class Compiler {
       ? expression.name
       : `function_${uid.shortUid()}`;
     const params = list ? expression.params.slice(0, -1) : expression.params;
+    const signature = this._types.procedures.get(expression);
+    const structParams = params.map((_, index) => structType(signature?.params[index].type));
+    const resultType = structType(signature?.result());
+    const resultCount = resultType ? resultType.fields.length : 1;
     let create: FunctionBinding['create'];
     const binding: FunctionBinding = {
       kind: 'function',
       blockType: 'command',
       args: params.map(() => 10),
+      structParams,
       create: (args, compiler) => create(args, compiler),
       compile: async () => {
         const funcScope = scope.createChild(true);
@@ -1963,14 +2139,37 @@ class Compiler {
           : null;
 
         if (funcScope.frame) {
-          funcScope.result = funcScope.frame.result;
+          funcScope.results = Array.from({ length: resultCount }, (_, index) =>
+            index === 0 ? funcScope.frame.result : funcScope.frame.variable()
+          );
         } else if (binding.shared) {
-          funcScope.result = funcScope.defineVariable('$result', uid());
-          const storage = funcScope.result.storage;
-          this.root.variables[storage.id] = [storage.name, ''];
+          funcScope.results = Array.from({ length: resultCount }, (_, index) => {
+            const result = funcScope.defineVariable(`$result${index || ''}`, uid());
+            const storage = result.storage;
+            this.root.variables[storage.id] = [storage.name, ''];
+            return result;
+          });
         }
 
-        const args = params.map(parameter => `${parameter}@${funcScope.id}`);
+        const args: string[] = [];
+        for (const [index, parameter] of params.entries()) {
+          const type = structParams[index];
+          if (!type) {
+            const name = `${parameter}@${funcScope.id}`;
+            args.push(name);
+            funcScope.defineParam(parameter, name);
+            continue;
+          }
+
+          const fields = type.fields.map(field => {
+            const name = `${parameter}.${field}`;
+            const argument = `${name}@${funcScope.id}`;
+            args.push(argument);
+            return funcScope.defineParam(name, argument);
+          });
+          funcScope.define(parameter, this.structBinding(type, fields, true));
+        }
+
         const captures = scope.parameters;
         const hidden = funcScope.frame ? [funcScope.frame.parameter] : [];
         const parameters = [...args, ...hidden, ...captures];
@@ -1979,9 +2178,6 @@ class Compiler {
         );
         funcScope.lastBlock = definition;
         funcScope.parameters = parameters;
-        params.forEach((parameter, i) => {
-          funcScope.defineParam(parameter, args[i]);
-        });
 
         if (list) {
           funcScope.define(expression.params.at(-1), list);
@@ -1990,7 +2186,7 @@ class Compiler {
         binding.procedure = {
           frame: funcScope.frame,
           captures,
-          result: funcScope.result
+          results: funcScope.results
         };
         create = ({ inputs }) => call(inputs);
 
@@ -1998,8 +2194,8 @@ class Compiler {
           this.write(funcScope.frame.exitStatus(), this.number(ProcedureExit.None), funcScope);
         }
 
-        if (funcScope.frame) {
-          this.write(funcScope.result, [1, [10, '']], funcScope);
+        if (funcScope.frame && !resultType) {
+          this.write(funcScope.frame.result, [1, [10, '']], funcScope);
         }
 
         await this.parseASTBody(expression.body.body, funcScope);

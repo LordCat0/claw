@@ -56,9 +56,9 @@ class CallFrame {
     return this._compiler.builtin('allocateFrame', [[1, this._bucket], [1, this._size]], scope);
   }
 
-  readResult (index: ScratchInput): ScratchInput {
+  readResult (index: ScratchInput, offset = 0): ScratchInput {
     return this._compiler.reporter('data_itemoflist', {
-      INDEX: this.index(1, index)
+      INDEX: this.index(1 + offset, index)
     }, { LIST: this._compiler.list('$frames') });
   }
 

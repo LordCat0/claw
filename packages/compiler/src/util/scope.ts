@@ -19,7 +19,7 @@ class Scope {
   breakState: VariableBinding | null;
   parameters: string[];
   internal: boolean;
-  result: VariableBinding | null;
+  results: VariableBinding[];
   temporaries: {
     values: VariableBinding[];
     next: number;
@@ -29,7 +29,7 @@ class Scope {
     this.parent = parent;
     this.isFunction = isFunction;
     this.id = uid.shortUid();
-    this.bindings = {};
+    this.bindings = Object.create(null);
     this.firstBlock = null;
     this.lastBlock = null;
     this.frame = parent?.frame || null;
@@ -38,7 +38,7 @@ class Scope {
     this.breakState = parent?.breakState || null;
     this.parameters = parent?.parameters || [];
     this.internal = parent?.internal || false;
-    this.result = parent?.result || null;
+    this.results = parent?.results || [];
     this.temporaries = parent?.temporaries || {
       values: [],
       next: 0
@@ -108,7 +108,7 @@ class Scope {
   }
 
   defineParam (name: string, parameter: string) {
-    this.define(name, {
+    const variable: VariableBinding = {
       kind: 'variable',
       get: {
         kind: 'function',
@@ -119,7 +119,9 @@ class Scope {
           fields: { VALUE: [parameter, null] }
         })
       }
-    });
+    };
+    this.define(name, variable);
+    return variable;
   }
 
   resolve (name: string): Binding | null {
@@ -141,6 +143,7 @@ class Scope {
       child.inTry = false;
       child.loopState = null;
       child.breakState = null;
+      child.results = [];
       child.temporaries = {
         values: [],
         next: 0

@@ -1,5 +1,6 @@
 import type CallFrame from './util/call-frame.ts';
 import type Compiler from './compiler.ts';
+import type { StructType } from './type-checker.ts';
 
 // Tokens
 
@@ -46,6 +47,7 @@ export enum Keyword {
   const = 'const',
   var = 'var',
   list = 'list',
+  struct = 'struct',
   true = 'true',
   false = 'false',
   import = 'import',
@@ -83,6 +85,7 @@ export const enum NodeType {
   ImportStatement = 'ImportStatement',
   ExportStatement = 'ExportStatement',
   TypeDeclaration = 'TypeDeclaration',
+  StructDeclaration = 'StructDeclaration',
   BinaryExpression = 'BinaryExpression',
   ConditionalExpression = 'ConditionalExpression',
   UnaryExpression = 'UnaryExpression',
@@ -90,6 +93,7 @@ export const enum NodeType {
   MemberExpression = 'MemberExpression',
   IndexExpression = 'IndexExpression',
   ArrayExpression = 'ArrayExpression',
+  StructLiteral = 'StructLiteral',
   UpdateExpression = 'UpdateExpression',
   NumberLiteral = 'NumberLiteral',
   StringLiteral = 'StringLiteral',
@@ -115,7 +119,8 @@ export type Statement =
   | ThrowStatement
   | ImportStatement
   | ExportStatement
-  | TypeDeclaration;
+  | TypeDeclaration
+  | StructDeclaration;
 
 export type TypeSyntax =
   | { kind: 'reference'; name: string; args: TypeSyntax[] }
@@ -138,6 +143,16 @@ export interface TypeDeclaration {
   exported?: boolean;
 }
 
+export interface StructDeclaration {
+  type: NodeType.StructDeclaration;
+  name: string;
+  properties: {
+    name: string;
+    annotation?: TypeSyntax;
+  }[];
+  exported?: boolean;
+}
+
 export type Expression =
   | BinaryExpression
   | ConditionalExpression
@@ -147,6 +162,7 @@ export type Expression =
   | MemberExpression
   | IndexExpression
   | ArrayExpression
+  | StructLiteral
   | UpdateExpression
   | Literal
   | Identifier;
@@ -321,6 +337,14 @@ export interface ArrayExpression {
   elements: Expression[];
 }
 
+export interface StructLiteral {
+  type: NodeType.StructLiteral;
+  properties: {
+    name: string;
+    value: Expression;
+  }[];
+}
+
 export interface UpdateExpression {
   type: NodeType.UpdateExpression;
   operator: string;
@@ -448,12 +472,13 @@ export interface FunctionBinding {
   compile?: () => Promise<void>;
   listCallback?: (list: ListBinding) => Promise<FunctionBinding>;
   args: FunctionArgument[];
+  structParams?: (StructType | undefined)[];
   create: (args: CallArguments, compiler: Compiler) => BlockOptions;
   shared?: boolean;
   procedure?: {
     frame: CallFrame | null;
     captures: string[];
-    result: VariableBinding | null;
+    results: VariableBinding[];
   };
 }
 
@@ -473,6 +498,11 @@ export interface VariableBinding {
 export interface ObjectBinding {
   kind: 'object';
   members: Bindings;
+  struct?: {
+    type: StructType;
+    fields: VariableBinding[];
+    constant: boolean;
+  };
 }
 
 export interface ListBinding {

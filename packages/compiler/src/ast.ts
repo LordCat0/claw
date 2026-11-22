@@ -22,6 +22,8 @@ import {
   type ImportStatement,
   type ExportStatement,
   type TypeDeclaration,
+  type StructDeclaration,
+  type StructLiteral,
   type TypeSyntax
 } from './types.ts';
 
@@ -120,6 +122,8 @@ class ASTBuilder {
         case Keyword.var:
         case Keyword.list:
           return this.parseVarDeclaration();
+        case Keyword.struct:
+          return this.parseStructDeclaration();
         case Keyword.if:
           return this.parseIf();
         case Keyword.switch:
@@ -460,13 +464,24 @@ class ASTBuilder {
     }, names);
   }
 
-  parseExport (): ExportStatement | TypeDeclaration {
+  parseExport (): ExportStatement | TypeDeclaration | StructDeclaration {
     this.advance();
-    const typeOnly = this.current().value === Keyword.type && this.tokens[this.pos + 1].type !== TokenType.SEMICOLON;
-    if (typeOnly && this.tokens[this.pos + 2]?.type === TokenType.EQUALS) {
+    if (this.current().type === TokenType.KEYWORD &&
+      this.current().value === Keyword.struct
+    ) {
+      return this.parseStructDeclaration(true);
+    }
+    const isTypeOnly = (
+      this.current().value === Keyword.type &&
+      this.tokens[this.pos + 1].type !== TokenType.SEMICOLON
+    );
+    if (
+      isTypeOnly &&
+      this.tokens[this.pos + 2]?.type === TokenType.EQUALS
+    ) {
       return this.parseTypeDeclaration(true);
     }
-    if (typeOnly) {
+    if (isTypeOnly) {
       this.typeTokens.push(this.advance());
     }
     const names: Token[] = [];
@@ -485,7 +500,7 @@ class ASTBuilder {
     return this.named({
       type: NodeType.ExportStatement,
       names: names.map(name => name.value as string),
-      ...(typeOnly && { typeOnly })
+      ...(isTypeOnly && { isTypeOnly })
     }, names);
   }
 
@@ -500,6 +515,39 @@ class ASTBuilder {
       type: NodeType.TypeDeclaration,
       name: name.value as string,
       annotation,
+      ...(exported && { exported })
+    }, [name]);
+  }
+
+  parseStructDeclaration (exported = false): StructDeclaration {
+    this.expect(TokenType.KEYWORD, Keyword.struct);
+    const name = this.expect(TokenType.IDENTIFIER);
+    this.typeTokens.push(name);
+    const properties: StructDeclaration['properties'] = [];
+
+    this.expect(TokenType.LBRACE);
+    while (this.current().type !== TokenType.RBRACE) {
+      const property = this.expect(TokenType.IDENTIFIER);
+      properties.push(this.locate({
+        name: property.value as string,
+        annotation: this.parseAnnotation()
+      }, property));
+
+      if (this.current().type !== TokenType.COMMA) {
+        break;
+      }
+
+      this.advance();
+    }
+    this.expect(TokenType.RBRACE);
+    if (this.current().type === TokenType.SEMICOLON) {
+      this.advance();
+    }
+
+    return this.named({
+      type: NodeType.StructDeclaration,
+      name: name.value as string,
+      properties,
       ...(exported && { exported })
     }, [name]);
   }
@@ -543,7 +591,9 @@ class ASTBuilder {
     const token = this.current();
     if (token.type === TokenType.LPAREN) {
       this.advance();
-      if (this.current().type !== TokenType.RPAREN && this.tokens[this.pos + 1]?.type !== TokenType.COLON) {
+      if (this.current().type !== TokenType.RPAREN &&
+        this.tokens[this.pos + 1]?.type !== TokenType.COLON
+      ) {
         const group = this.parseType();
         this.expect(TokenType.RPAREN);
         return group;
@@ -832,10 +882,46 @@ class ASTBuilder {
     }, token);
   }
 
+  parseStructLiteral (): StructLiteral {
+    this.expect(TokenType.LBRACE);
+    const properties: StructLiteral['properties'] = [];
+    while (this.current().type !== TokenType.RBRACE) {
+      const token = this.expect(TokenType.IDENTIFIER);
+      const name = token.value as string;
+      let value: Expression;
+      if (this.current().type === TokenType.COLON) {
+        this.advance();
+        value = this.parseExpression();
+      } else {
+        value = this.locate({
+          type: NodeType.Identifier,
+          name
+        }, token);
+      }
+
+      properties.push(this.locate({
+        name,
+        value
+      }, token));
+      if (this.current().type !== TokenType.COMMA) {
+        break;
+      }
+
+      this.advance();
+    }
+    this.expect(TokenType.RBRACE);
+    return {
+      type: NodeType.StructLiteral,
+      properties
+    };
+  }
+
   parsePrimary (): Expression {
     const token = this.current();
 
     switch (token.type) {
+      case TokenType.LBRACE:
+        return this.parseStructLiteral();
       case TokenType.LBRACKET: {
         this.advance();
         const elements: Expression[] = [];
