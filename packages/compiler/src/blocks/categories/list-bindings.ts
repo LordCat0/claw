@@ -16,15 +16,6 @@ export const internals: Bindings = {
             STRING2: inputs[1]
           }
         })
-      },
-      waitUntil: {
-        kind: 'function',
-        blockType: 'command',
-        args: [10],
-        create: ({ inputs }, compiler) => ({
-          opcode: 'control_wait_until',
-          inputs: { CONDITION: compiler.boolean(inputs[0]) }
-        })
       }
     }
   }

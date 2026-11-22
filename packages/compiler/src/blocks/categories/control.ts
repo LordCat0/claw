@@ -12,6 +12,17 @@ export default {
           DURATION: inputs[0]
         }
       })
+    },
+    waitUntil: {
+      kind: 'function',
+      blockType: 'command',
+      args: [10],
+      create: ({ inputs }, compiler) => ({
+        opcode: 'control_wait_until',
+        inputs: {
+          CONDITION: compiler.boolean(inputs[0])
+        }
+      })
     }
   },
   project: {

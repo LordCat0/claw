@@ -4,7 +4,7 @@ var reserving: number;
 var allocated: number;
 
 function* allocateFrame(bucket: number, size: number): number {
-  compiler.waitUntil(reserving == 0);
+  waitUntil(reserving == 0);
   reserving = 1;
   var head = lists.item("$frameFree", bucket);
   if (head > 0) {
