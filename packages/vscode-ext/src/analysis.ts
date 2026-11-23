@@ -98,6 +98,7 @@ const listMembers: Symbols = {
 export class Analysis {
   syntax: ReturnType<typeof parse>;
   types: TypeChecker;
+  structFields: SourceToken[] = [];
   scopes: Scope[];
   errors: Problem[] = [];
   unreachable: Range[] = [];
@@ -320,6 +321,11 @@ export class Analysis {
       }
       case NodeType.TypeDeclaration:
         return false;
+      case NodeType.StructDeclaration:
+        for (const property of node.properties) {
+          this.structFields.push(this.syntax.locations.get(property) as SourceToken);
+        }
+        return false;
       case NodeType.EnumDeclaration: {
         const [token] = this.syntax.names.get(node);
         this.defineEnum(scope, token, node.members.map(member => ({
@@ -438,8 +444,8 @@ export class Analysis {
   }
 
   visitExpression (node: Expression, scope: Scope, use: ExpressionUse = 'value'): Symbol | undefined {
-    const { expressions } = this.syntax;
-    const range = expressions.get(node);
+    const { expressions, locations } = this.syntax;
+    const range = expressions.get(node) || locations.get(node) as SourceToken;
     switch (node.type) {
       case NodeType.Identifier: {
         const symbol = this.lookup(node.name, scope);
@@ -453,6 +459,19 @@ export class Analysis {
       case NodeType.MemberExpression: {
         const errorCount = this.errors.length;
         const object = this.visitExpression(node.object, scope, 'binding');
+        const struct = this.types.structs.get(node.object);
+        if (struct) {
+          this.structFields.push(locations.get(node) as SourceToken);
+          if (struct.properties[node.property]) {
+            return this.checkUse({
+              name: node.property,
+              kind: 'variable',
+              readOnly: !object || object.readOnly ||
+                object.kind === 'constant' || object.kind === 'parameter'
+            }, use, range);
+          }
+          return;
+        }
         if (this.errors.length > errorCount || object?.kind === 'import') {
           return object;
         }
@@ -472,6 +491,12 @@ export class Analysis {
         }
         return this.checkUse(member, use, range);
       }
+      case NodeType.StructLiteral:
+        for (const property of node.properties) {
+          this.structFields.push(locations.get(property) as SourceToken);
+          this.visitExpression(property.value, scope);
+        }
+        break;
       case NodeType.FunctionExpression:
         return this.checkUse({
           name: 'Anonymous function',

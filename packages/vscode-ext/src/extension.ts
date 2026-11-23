@@ -7,7 +7,7 @@ const language = 'claw';
 const validationDelay = 500;
 const identifier = /[a-zA-Z_][a-zA-Z_0-9]*/;
 const semanticTokens = new vscode.SemanticTokensLegend(
-  ['type', 'keyword', 'enum', 'enumMember'],
+  ['type', 'keyword', 'enum', 'enumMember', 'property'],
   ['defaultLibrary']
 );
 const primitiveTypes = ['any', 'unknown', 'never', 'void', 'number', 'string', 'boolean'];
@@ -133,6 +133,9 @@ export function activate (context: vscode.ExtensionContext) {
           if (kind) {
             tokens.push(editorRange(document, token), kind);
           }
+        }
+        for (const token of analysis.structFields) {
+          tokens.push(editorRange(document, token), 'property');
         }
         for (const token of analysis.syntax.typeTokens) {
           if (analysis.types.enumTokens.has(token)) {
