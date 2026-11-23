@@ -16,7 +16,7 @@ import { parse, type Problem, type Range, type SourceToken } from './parser.ts';
 
 interface Symbol {
   name: string;
-  kind: 'function' | 'variable' | 'constant' | 'parameter' | 'object' | 'import';
+  kind: 'function' | 'variable' | 'constant' | 'parameter' | 'object' | 'import' | 'enum' | 'enumMember';
   origin?: string;
   parameters?: string[];
   blockType?: FunctionBinding['blockType'];
@@ -197,6 +197,20 @@ export class Analysis {
     scope.symbols.push(symbol);
   }
 
+  defineEnum (scope: Scope, token: SourceToken, members: { name: string; declaration?: Range }[]) {
+    const symbols: Symbols = Object.create(null);
+    for (const member of members) {
+      symbols[member.name] = {
+        ...member,
+        kind: 'enumMember'
+      };
+    }
+    this.define(scope, token, {
+      kind: 'enum',
+      members: symbols
+    });
+  }
+
   report (message: string, range: Range) {
     if (range) {
       this.errors.push({
@@ -273,6 +287,11 @@ export class Analysis {
         const runtime = this.types.imports.get(node);
         for (const [index, name] of node.names.entries()) {
           const token = this.syntax.names.get(node)[index];
+          const type = this.types.hovers.get(token);
+          if (typeof type === 'object' && type.kind === 'enum') {
+            this.defineEnum(scope, token, Object.keys(type.members).map(name => ({ name })));
+            continue;
+          }
           if (node.typeOnly || (runtime && !runtime.includes(name))) {
             this.syntax.typeTokens.push(token);
             continue;
@@ -301,6 +320,14 @@ export class Analysis {
       }
       case NodeType.TypeDeclaration:
         return false;
+      case NodeType.EnumDeclaration: {
+        const [token] = this.syntax.names.get(node);
+        this.defineEnum(scope, token, node.members.map(member => ({
+          name: member.name,
+          declaration: this.syntax.locations.get(member) as SourceToken
+        })));
+        return false;
+      }
       case NodeType.FunctionDeclaration: {
         const { first } = this.syntax.spans.get(node);
         this.define(scope, this.syntax.tokens[first + 1], {
@@ -338,12 +365,13 @@ export class Analysis {
         this.visitExpression(node.test, scope);
         const consequent = this.visit(node.consequent, scope);
         const alternate = node.alternate && this.visit(node.alternate, scope);
-        if (node.test.type === NodeType.BooleanLiteral) {
-          const unreachable = node.test.value ? node.alternate : node.consequent;
+        const test = this.types.enumMembers.get(node.test) || node.test;
+        if (test.type === NodeType.BooleanLiteral) {
+          const unreachable = test.value ? node.alternate : node.consequent;
           if (unreachable) {
             this.markUnreachable(unreachable);
           }
-          return node.test.value ? consequent : !!alternate;
+          return test.value ? consequent : !!alternate;
         }
         return consequent && !!alternate;
       }
@@ -364,7 +392,8 @@ export class Analysis {
         this.visitExpression(node.test, forScope);
         this.visitBody(node.body.body, this.addScope(node.body, forScope, 'loop'));
         this.visit(node.update, forScope);
-        if (node.test.type === NodeType.BooleanLiteral && !node.test.value) {
+        const test = this.types.enumMembers.get(node.test) || node.test;
+        if (test.type === NodeType.BooleanLiteral && !test.value) {
           this.markUnreachable(node.body);
         }
         return false;
@@ -372,7 +401,8 @@ export class Analysis {
       case NodeType.WhileStatement: {
         this.visitExpression(node.test, scope);
         this.visitBody(node.body.body, this.addScope(node.body, scope, 'loop'));
-        if (node.test.type === NodeType.BooleanLiteral && !node.test.value) {
+        const test = this.types.enumMembers.get(node.test) || node.test;
+        if (test.type === NodeType.BooleanLiteral && !test.value) {
           this.markUnreachable(node.body);
         }
         return false;
@@ -426,6 +456,9 @@ export class Analysis {
         if (this.errors.length > errorCount || object?.kind === 'import') {
           return object;
         }
+        if (object?.kind === 'enum') {
+          return object.members[node.property];
+        }
 
         const members = object?.kind === 'object' ? object.members : listMembers;
         const member = Object.hasOwn(members, node.property) ? members[node.property] : undefined;
@@ -466,7 +499,7 @@ export class Analysis {
       case NodeType.ConditionalExpression: {
         const branchUse = use === 'statement' ? 'statement' : 'value';
         this.visitExpression(node.test, scope);
-        const { test } = node;
+        const test = this.types.enumMembers.get(node.test) || node.test;
         if (test.type === NodeType.BooleanLiteral || test.type === NodeType.NumberLiteral ||
             test.type === NodeType.StringLiteral) {
           const truthy = Boolean(test.value) && test.value !== '0' && String(test.value).toLowerCase() !== 'false';
@@ -497,6 +530,9 @@ export class Analysis {
   checkUse (symbol: Symbol, use: ExpressionUse, range: Range) {
     if (symbol.kind === 'import') {
       return symbol;
+    }
+    if (symbol.kind === 'enum') {
+      return use === 'binding' ? symbol : undefined;
     }
 
     if (use === 'call' && symbol.kind !== 'function') {
@@ -558,18 +594,19 @@ export class Analysis {
       return;
     }
 
-    const literal = argument.type === NodeType.StringLiteral ||
-      argument.type === NodeType.NumberLiteral || argument.type === NodeType.BooleanLiteral;
+    const value = this.types.enumMembers.get(argument) || argument;
+    const literal = value.type === NodeType.StringLiteral ||
+      value.type === NodeType.NumberLiteral || value.type === NodeType.BooleanLiteral;
     const listName = kind === 'list' && argument.type === NodeType.Identifier;
     if (typeof kind === 'string' && (kind !== 'broadcast' || callee.blockType === 'hat') && !literal && !listName) {
       this.report('Block dropdowns and data names require a literal value.', this.syntax.expressions.get(argument));
     } else if (kind === 'variable' && literal) {
-      const name = String(argument.value);
+      const name = String(value.value);
       const variable = this.lookup(name, scope);
       if (!variable || !['variable', 'constant', 'import'].includes(variable.kind)) {
         this.report(`"${name}" is not a variable.`, this.syntax.expressions.get(argument));
       }
-    } else if (kind === 'list' && literal && !this.internal && String(argument.value).startsWith('$')) {
+    } else if (kind === 'list' && literal && !this.internal && String(value.value).startsWith('$')) {
       this.report('Compiler lists are private.', this.syntax.expressions.get(argument));
     } else {
       this.visitExpression(argument, scope, callee?.kind === 'function' ? 'value' : 'binding');

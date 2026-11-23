@@ -6,7 +6,10 @@ import type { Range } from './parser.ts';
 const language = 'claw';
 const validationDelay = 500;
 const identifier = /[a-zA-Z_][a-zA-Z_0-9]*/;
-const typeTokens = new vscode.SemanticTokensLegend(['type', 'keyword'], ['defaultLibrary']);
+const semanticTokens = new vscode.SemanticTokensLegend(
+  ['type', 'keyword', 'enum', 'enumMember'],
+  ['defaultLibrary']
+);
 const primitiveTypes = ['any', 'unknown', 'never', 'void', 'number', 'string', 'boolean'];
 const itemKinds = {
   function: vscode.CompletionItemKind.Function,
@@ -14,7 +17,9 @@ const itemKinds = {
   constant: vscode.CompletionItemKind.Constant,
   parameter: vscode.CompletionItemKind.Variable,
   object: vscode.CompletionItemKind.Module,
-  import: vscode.CompletionItemKind.Reference
+  import: vscode.CompletionItemKind.Reference,
+  enum: vscode.CompletionItemKind.Enum,
+  enumMember: vscode.CompletionItemKind.EnumMember
 };
 
 type Symbol = NonNullable<ReturnType<Analysis['resolve']>>;
@@ -122,8 +127,17 @@ export function activate (context: vscode.ExtensionContext) {
     vscode.languages.registerDocumentSemanticTokensProvider(language, {
       provideDocumentSemanticTokens (document) {
         const analysis = analyze(document);
-        const tokens = new vscode.SemanticTokensBuilder(typeTokens);
+        const tokens = new vscode.SemanticTokensBuilder(semanticTokens);
+        for (const token of analysis.syntax.tokens) {
+          const kind = analysis.types.enumTokens.get(token);
+          if (kind) {
+            tokens.push(editorRange(document, token), kind);
+          }
+        }
         for (const token of analysis.syntax.typeTokens) {
+          if (analysis.types.enumTokens.has(token)) {
+            continue;
+          }
           const name = String(token.value);
           if (name === Keyword.type) {
             tokens.push(editorRange(document, token), 'keyword');
@@ -134,7 +148,7 @@ export function activate (context: vscode.ExtensionContext) {
         }
         return tokens.build();
       }
-    }, typeTokens),
+    }, semanticTokens),
     vscode.languages.registerCompletionItemProvider(language, {
       provideCompletionItems (document, position) {
         const analysis = analyze(document);

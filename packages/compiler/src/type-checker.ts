@@ -76,11 +76,14 @@ interface FunctionType {
   result: () => ValueType;
 }
 
+type TypeAlias = (() => ValueType) & { isEnum?: boolean };
+type EnumToken = 'enum' | 'enumMember';
+
 interface TypeScope {
   parent?: TypeScope;
   values: Record<string, ValueType>;
   scalarVariables: string[];
-  aliases: Record<string, () => ValueType>;
+  aliases: Record<string, TypeAlias>;
   returns?: {
     expected?: ValueType;
     values: ValueType[];
@@ -97,7 +100,7 @@ export interface TypeModule {
 interface CheckedModule {
   source: TypeModule;
   values: Record<string, ValueType>;
-  aliases: Record<string, () => ValueType>;
+  aliases: Record<string, TypeAlias>;
   functions: (() => ValueType)[];
   checking: boolean;
 }
@@ -138,6 +141,7 @@ const enum Completion {
 class TypeChecker {
   problems: TypeProblem[];
   hovers: WeakMap<Token, ValueType>;
+  enumTokens: WeakMap<Token, EnumToken>;
   imports: WeakMap<ImportStatement, string[]>;
   exports: WeakMap<ExportStatement, string[]>;
   structs: WeakMap<Expression | Statement, StructType>;
@@ -155,6 +159,7 @@ class TypeChecker {
   ) {
     this.problems = [];
     this.hovers = new WeakMap();
+    this.enumTokens = new WeakMap();
     this.imports = new WeakMap();
     this.exports = new WeakMap();
     this.structs = new WeakMap();
@@ -297,9 +302,13 @@ class TypeChecker {
     }
   }
 
-  hover (token: Token, type: ValueType) {
+  hover (token: Token, type: ValueType, enumToken?: EnumToken) {
     if (token) {
       this.hovers.set(token, type);
+      const kind = enumToken || (isEnum(type) ? 'enum' : undefined);
+      if (kind) {
+        this.enumTokens.set(token, kind);
+      }
     }
   }
 
@@ -512,6 +521,7 @@ class TypeChecker {
       case 'reference': {
         const { name, args } = syntax;
         let type: ValueType = 'any';
+        let enumToken: EnumToken;
         if (Object.hasOwn(utilityArity, name)) {
           if (args.length !== utilityArity[name]) {
             this.report(
@@ -539,6 +549,9 @@ class TypeChecker {
           }
           if (alias) {
             type = alias();
+            if (alias.isEnum) {
+              enumToken = 'enum';
+            }
           } else if (primitives.includes(name as Primitive)) {
             type = name as Primitive;
           } else if (typeof builtin === 'object' && builtin.kind === 'object') {
@@ -547,7 +560,7 @@ class TypeChecker {
             this.report(module, syntax, `Unknown type '${name}'.`);
           }
         }
-        this.hover(token, type);
+        this.hover(token, type, enumToken);
         return type;
       }
     }
@@ -650,8 +663,8 @@ class TypeChecker {
           kind: 'literal',
           value
         })));
-        scope.aliases[name] = () => type;
-        this.hover(token, type);
+        scope.aliases[name] = Object.assign(() => type, { isEnum: true });
+        this.hover(token, type, 'enum');
         continue;
       }
 
@@ -788,7 +801,11 @@ class TypeChecker {
         );
       }
 
-      this.hover(token, (!typeOnly && value) || type?.() || 'any');
+      this.hover(
+        token,
+        (!typeOnly && value) || type?.() || 'any',
+        type?.isEnum ? 'enum' : undefined
+      );
     }
     this.imports.set(statement, runtime);
   }
@@ -799,12 +816,13 @@ class TypeChecker {
       const token = this.nameToken(statement, module, index);
       const alias = this.lookup(scope, name, 'aliases');
       const value = statement.typeOnly ? undefined : this.lookup(scope, name, 'values');
+      const enumToken = alias?.isEnum ? 'enum' : undefined;
       if (alias) {
-        module.aliases[name] = () => {
+        module.aliases[name] = Object.assign(() => {
           const type = alias();
-          this.hover(token, value || type);
+          this.hover(token, value || type, enumToken);
           return type;
-        };
+        }, { isEnum: alias.isEnum });
       }
       if (value) {
         module.values[name] = value;
@@ -820,7 +838,7 @@ class TypeChecker {
           token
         );
       }
-      this.hover(token, value);
+      this.hover(token, value, enumToken);
     }
     this.exports.set(statement, runtime);
   }
@@ -956,6 +974,10 @@ class TypeChecker {
               this.report(module, member, `Duplicate enum member '${member.name}'.`);
             }
             members[member.name] = member.value;
+            this.hover(module.source.locations.get(member), {
+              kind: 'literal',
+              value: member.value
+            }, 'enumMember');
           }
           this.defineValue(scope, module, node, name, {
             kind: 'enum',
@@ -1406,7 +1428,11 @@ class TypeChecker {
       node.type === NodeType.StringLiteral ||
       node.type === NodeType.BooleanLiteral
     ) {
-      this.hover(module.source.locations.get(node), type);
+      this.hover(
+        module.source.locations.get(node),
+        type,
+        this.enumMembers.has(node) ? 'enumMember' : undefined
+      );
     }
     return type;
   }
