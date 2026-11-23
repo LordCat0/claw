@@ -8,6 +8,7 @@ import {
   type FunctionDeclaration,
   type FunctionExpression,
   type ImportStatement,
+  type Literal,
   type Program,
   type Statement,
   type StructDeclaration,
@@ -33,10 +34,21 @@ type ValueType = Primitive
   }
   | FunctionType
   | StructType
+  | EnumValue
   | {
     kind: 'object';
     members: Record<string, ValueType>;
   };
+
+interface EnumValue {
+  kind: 'enum';
+  name: string;
+  members: Record<string, LiteralValue>;
+}
+
+function isEnum (type: ValueType): type is EnumValue {
+  return typeof type === 'object' && type.kind === 'enum';
+}
 
 export interface StructType {
   kind: 'struct';
@@ -129,6 +141,7 @@ class TypeChecker {
   imports: WeakMap<ImportStatement, string[]>;
   exports: WeakMap<ExportStatement, string[]>;
   structs: WeakMap<Expression | Statement, StructType>;
+  enumMembers: WeakMap<Expression, Literal>;
   procedures: WeakMap<FunctionDeclaration | FunctionExpression, FunctionType>;
   private modules: Record<string, CheckedModule>;
   private builtins: TypeScope;
@@ -145,6 +158,7 @@ class TypeChecker {
     this.imports = new WeakMap();
     this.exports = new WeakMap();
     this.structs = new WeakMap();
+    this.enumMembers = new WeakMap();
     this.procedures = new WeakMap();
     this.modules = Object.create(null);
     this.builtins = this.child();
@@ -253,6 +267,21 @@ class TypeChecker {
     return module.source.names.get(node)?.[index] || module.source.locations.get(node);
   }
 
+  private defineValue (
+    scope: TypeScope,
+    module: CheckedModule,
+    node: Statement,
+    name: string,
+    type: ValueType,
+    token = this.nameToken(node, module)
+  ) {
+    if (Object.hasOwn(scope.values, name) && (isEnum(type) || isEnum(scope.values[name]))) {
+      this.report(module, node, `'${name}' is already defined in this scope.`, token);
+    } else {
+      scope.values[name] = type;
+    }
+  }
+
   report (
     module: CheckedModule,
     node: object,
@@ -281,6 +310,8 @@ class TypeChecker {
     switch (type.kind) {
       case 'struct':
         return type.name;
+      case 'enum':
+        return `typeof ${type.name}`;
       case 'literal':
         return JSON.stringify(type.value);
       case 'array': {
@@ -597,7 +628,8 @@ class TypeChecker {
     for (const statement of body) {
       if (
         statement.type !== NodeType.TypeDeclaration &&
-        statement.type !== NodeType.StructDeclaration
+        statement.type !== NodeType.StructDeclaration &&
+        statement.type !== NodeType.EnumDeclaration
       ) {
         continue;
       }
@@ -610,6 +642,16 @@ class TypeChecker {
         Object.hasOwn(utilityArity, name)
       ) {
         this.report(module, statement, `Type '${name}' is already defined.`, token);
+        continue;
+      }
+
+      if (statement.type === NodeType.EnumDeclaration) {
+        const type = this.union(statement.members.map(({ value }) => ({
+          kind: 'literal',
+          value
+        })));
+        scope.aliases[name] = () => type;
+        this.hover(token, type);
         continue;
       }
 
@@ -732,8 +774,10 @@ class TypeChecker {
       }
 
       if (!typeOnly && (value || !values)) {
-        runtime.push(name);
-        scope.values[name] = value || 'any';
+        if (!isEnum(value)) {
+          runtime.push(name);
+        }
+        this.defineValue(scope, module, statement, name, value || 'any', token);
       } else if (!type && values) {
         const kind = typeOnly ? 'Type' : 'Name';
         this.report(
@@ -764,7 +808,9 @@ class TypeChecker {
       }
       if (value) {
         module.values[name] = value;
-        runtime.push(name);
+        if (!isEnum(value)) {
+          runtime.push(name);
+        }
       }
       if (!alias && !value) {
         this.report(
@@ -877,6 +923,7 @@ class TypeChecker {
   }
 
   literalTruth (expression: Expression) {
+    expression = this.enumMembers.get(expression) || expression;
     if (
       expression.type === NodeType.BooleanLiteral ||
       expression.type === NodeType.NumberLiteral ||
@@ -900,17 +947,37 @@ class TypeChecker {
     switch (node.type) {
       case NodeType.TypeDeclaration:
       case NodeType.StructDeclaration:
+      case NodeType.EnumDeclaration: {
+        const { name } = node;
+        if (node.type === NodeType.EnumDeclaration) {
+          const members: EnumValue['members'] = Object.create(null);
+          for (const member of node.members) {
+            if (Object.hasOwn(members, member.name)) {
+              this.report(module, member, `Duplicate enum member '${member.name}'.`);
+            }
+            members[member.name] = member.value;
+          }
+          this.defineValue(scope, module, node, name, {
+            kind: 'enum',
+            name,
+            members
+          });
+        }
         if (node.exported) {
           if (scope.parent !== this.builtins) {
             this.report(module, node, 'Exports are only allowed at module scope.');
           } else {
-            const alias = this.lookup(scope, node.name, 'aliases');
+            const alias = this.lookup(scope, name, 'aliases');
             if (alias) {
-              module.aliases[node.name] = alias;
+              module.aliases[name] = alias;
+            }
+            if (node.type === NodeType.EnumDeclaration) {
+              module.values[name] = scope.values[name];
             }
           }
         }
         break;
+      }
       case NodeType.ImportStatement:
         if (scope.parent !== this.builtins) {
           this.report(module, node, 'Imports are only allowed at module scope.');
@@ -964,10 +1031,10 @@ class TypeChecker {
           }
           this.structs.set(node, struct);
         }
-        scope.values[name] = node.list && type === 'any' ? {
+        this.defineValue(scope, module, node, name, node.list && type === 'any' ? {
           kind: 'array',
           element: 'any'
-        } : type;
+        } : type);
         if (!node.list) {
           scope.scalarVariables.push(name);
         }
@@ -976,12 +1043,16 @@ class TypeChecker {
       }
       case NodeType.FunctionDeclaration: {
         const type = this.checkProcedure(node, scope, module);
-        scope.values[node.name] = type;
+        this.defineValue(scope, module, node, node.name, type);
         this.hover(this.nameToken(node, module), type);
         break;
       }
       case NodeType.Assignment: {
         const type = this.checkExpression(node.target, scope, module);
+        if (this.enumMembers.has(node.target)) {
+          this.report(module, node.target, 'Enum members cannot be reassigned.');
+          break;
+        }
         const value = node.value.type === NodeType.ArrayExpression &&
           !node.operator && this.element(type) && this.acceptsListItems(node.target, scope)
           ? this.listItems(node.value, scope, module)
@@ -1146,6 +1217,7 @@ class TypeChecker {
   }
 
   repeatRuns (count: Expression) {
+    count = this.enumMembers.get(count) || count;
     if (
       count.type === NodeType.NumberLiteral ||
       count.type === NodeType.StringLiteral ||
@@ -1395,6 +1467,10 @@ class TypeChecker {
         };
       case NodeType.Identifier: {
         const value = this.lookup(scope, node.name, 'values');
+        if (isEnum(value)) {
+          this.report(module, node, `Access a member of enum '${node.name}' to use its value.`);
+          return 'any';
+        }
         if (!value && this.lookup(scope, node.name, 'aliases')) {
           this.report(module, node, `Type '${node.name}' cannot be used as a value.`);
         }
@@ -1443,6 +1519,48 @@ class TypeChecker {
         return truth ? consequent : alternate;
       }
       case NodeType.MemberExpression: {
+        if (node.object.type === NodeType.Identifier) {
+          const enumeration = this.lookup(scope, node.object.name, 'values');
+          if (isEnum(enumeration)) {
+            this.hover(module.source.locations.get(node.object), enumeration);
+            const value = enumeration.members[node.property];
+            if (value === undefined) {
+              this.report(
+                module,
+                node,
+                `Enum '${enumeration.name}' has no member '${node.property}'.`
+              );
+              return 'any';
+            }
+
+            let literal: Literal;
+            switch (typeof value) {
+              case 'number':
+                literal = {
+                  type: NodeType.NumberLiteral,
+                  value
+                };
+                break;
+              case 'string':
+                literal = {
+                  type: NodeType.StringLiteral,
+                  value
+                };
+                break;
+              case 'boolean':
+                literal = {
+                  type: NodeType.BooleanLiteral,
+                  value
+                };
+                break;
+            }
+            this.enumMembers.set(node, literal);
+            return {
+              kind: 'literal',
+              value
+            };
+          }
+        }
         const object = this.checkExpression(node.object, scope, module);
         const member = this.member(object, node.property);
         if (!member) {
@@ -1469,7 +1587,11 @@ class TypeChecker {
       }
       case NodeType.UpdateExpression: {
         const type = this.checkExpression(node.argument, scope, module);
-        this.requireAssignable('number', type, node.argument, module);
+        if (this.enumMembers.has(node.argument)) {
+          this.report(module, node.argument, 'Enum members cannot be reassigned.');
+        } else {
+          this.requireAssignable('number', type, node.argument, module);
+        }
         return type;
       }
       case NodeType.CallExpression:

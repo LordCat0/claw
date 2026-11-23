@@ -5,6 +5,7 @@ import {
   type Token,
   type Statement,
   type Expression,
+  type Literal,
   type MemberExpression,
   type Program,
   type Block,
@@ -23,6 +24,7 @@ import {
   type ExportStatement,
   type TypeDeclaration,
   type StructDeclaration,
+  type EnumDeclaration,
   type StructLiteral,
   type TypeSyntax
 } from './types.ts';
@@ -122,6 +124,8 @@ class ASTBuilder {
           return this.parseVarDeclaration();
         case Keyword.struct:
           return this.parseStructDeclaration();
+        case Keyword.enum:
+          return this.parseEnumDeclaration();
         case Keyword.if:
           return this.parseIf();
         case Keyword.switch:
@@ -462,25 +466,28 @@ class ASTBuilder {
     }, names);
   }
 
-  parseExport (): ExportStatement | TypeDeclaration | StructDeclaration {
+  parseExport (): ExportStatement | TypeDeclaration | StructDeclaration | EnumDeclaration {
     this.advance();
-    if (
-      this.current().type === TokenType.KEYWORD &&
-      this.current().value === Keyword.struct
-    ) {
-      return this.parseStructDeclaration(true);
+    const token = this.current();
+    if (token.type === TokenType.KEYWORD) {
+      switch (token.value) {
+        case Keyword.struct:
+          return this.parseStructDeclaration(true);
+        case Keyword.enum:
+          return this.parseEnumDeclaration(true);
+      }
     }
-    const isTypeOnly = (
+    const typeOnly = (
       this.current().value === Keyword.type &&
       this.tokens[this.pos + 1].type !== TokenType.SEMICOLON
     );
     if (
-      isTypeOnly &&
+      typeOnly &&
       this.tokens[this.pos + 2]?.type === TokenType.EQUALS
     ) {
       return this.parseTypeDeclaration(true);
     }
-    if (isTypeOnly) {
+    if (typeOnly) {
       this.typeTokens.push(this.advance());
     }
 
@@ -496,7 +503,7 @@ class ASTBuilder {
     return this.recordNameTokens({
       type: NodeType.ExportStatement,
       names: names.map(name => name.value as string),
-      ...(isTypeOnly && { isTypeOnly })
+      ...(typeOnly && { typeOnly })
     }, names);
   }
 
@@ -554,6 +561,67 @@ class ASTBuilder {
       type: NodeType.StructDeclaration,
       name: name.value as string,
       properties,
+      ...(exported && { exported })
+    }, [name]);
+  }
+
+  parseEnumDeclaration (exported = false): EnumDeclaration {
+    this.expect(TokenType.KEYWORD, Keyword.enum);
+    const name = this.expect(TokenType.IDENTIFIER);
+    this.typeTokens.push(name);
+    const members: EnumDeclaration['members'] = [];
+    let nextNumber: number | undefined = 0;
+
+    this.expect(TokenType.LBRACE);
+    while (this.current().type !== TokenType.RBRACE) {
+      const token = this.current();
+      if (token.type === TokenType.KEYWORD) {
+        this.advance();
+      } else {
+        this.expect(TokenType.IDENTIFIER);
+      }
+      const member = token.value as string;
+      let value: Literal['value'] = nextNumber === undefined ? member : nextNumber;
+      if (this.current().type === TokenType.EQUALS) {
+        this.advance();
+        const initializer = this.current();
+        if (initializer.type === TokenType.STRING || initializer.type === TokenType.NUMBER) {
+          value = this.advance().value as string | number;
+        } else if (
+          initializer.type === TokenType.KEYWORD &&
+          (initializer.value === Keyword.true || initializer.value === Keyword.false)
+        ) {
+          value = this.advance().value === Keyword.true;
+        } else if (initializer.type === TokenType.OPERATOR && initializer.value === '-') {
+          this.advance();
+          value = -Number(this.expect(TokenType.NUMBER).value);
+        } else {
+          throw new Error(
+            `Expected a string, number, or boolean but got ${initializer.type} '${initializer.value}' ` +
+            `at line ${initializer.line}, col ${initializer.col}`
+          );
+        }
+      }
+
+      members.push(this.recordLocation({
+        name: member,
+        value
+      }, token));
+      nextNumber = typeof value === 'number' ? value + 1 : undefined;
+      if (this.current().type !== TokenType.COMMA) {
+        break;
+      }
+      this.advance();
+    }
+    this.expect(TokenType.RBRACE);
+    if (this.current().type === TokenType.SEMICOLON) {
+      this.advance();
+    }
+
+    return this.recordNameTokens({
+      type: NodeType.EnumDeclaration,
+      name: name.value as string,
+      members,
       ...(exported && { exported })
     }, [name]);
   }

@@ -518,7 +518,7 @@ class Compiler {
     }
 
     if (node.type === NodeType.ExportStatement) {
-      for (const name of node.names) {
+      for (const name of this._types.exports.get(node) || node.names) {
         this._writes[name] = false;
       }
     }
@@ -1868,6 +1868,7 @@ class Compiler {
       }
       case NodeType.TypeDeclaration:
       case NodeType.StructDeclaration:
+      case NodeType.EnumDeclaration:
         return scope.lastBlock;
       case NodeType.FunctionDeclaration: {
         await this.parseFunction(statement, scope);
@@ -2373,6 +2374,21 @@ class Compiler {
     }
   }
 
+  private inlineEnumMembers (node: object) {
+    for (const [key, child] of Object.entries(node)) {
+      if (!child || typeof child !== 'object') {
+        continue;
+      }
+
+      const literal = this._types.enumMembers.get(child);
+      if (literal) {
+        Reflect.set(node, key, literal);
+      } else {
+        this.inlineEnumMembers(child);
+      }
+    }
+  }
+
   pruneBlocks () {
     const blocks = this.root.blocks;
     const pending = Object.keys(blocks).filter(id => blocks[id].topLevel);
@@ -2493,6 +2509,10 @@ class Compiler {
     this.collectRuntimePrograms(entry, runtime);
 
     const programs = Object.values(runtime);
+    // Use the same block optimizations for enum members and handwritten literals.
+    for (const program of programs) {
+      this.inlineEnumMembers(program);
+    }
     this._usesThread = programs.some(program => this.usesThread(program));
     this._usesThrow = programs.some(program => this.usesThrow(program));
     this.builtins = await this.compileFile(listRuntimePath, true);

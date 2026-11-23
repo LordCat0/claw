@@ -48,6 +48,7 @@ export enum Keyword {
   var = 'var',
   list = 'list',
   struct = 'struct',
+  enum = 'enum',
   true = 'true',
   false = 'false',
   import = 'import',
@@ -86,6 +87,7 @@ export const enum NodeType {
   ExportStatement = 'ExportStatement',
   TypeDeclaration = 'TypeDeclaration',
   StructDeclaration = 'StructDeclaration',
+  EnumDeclaration = 'EnumDeclaration',
   BinaryExpression = 'BinaryExpression',
   ConditionalExpression = 'ConditionalExpression',
   UnaryExpression = 'UnaryExpression',
@@ -120,7 +122,8 @@ export type Statement =
   | ImportStatement
   | ExportStatement
   | TypeDeclaration
-  | StructDeclaration;
+  | StructDeclaration
+  | EnumDeclaration;
 
 export type TypeSyntax =
   | {
@@ -162,6 +165,16 @@ export interface StructDeclaration {
   properties: {
     name: string;
     annotation?: TypeSyntax;
+  }[];
+  exported?: boolean;
+}
+
+export interface EnumDeclaration {
+  type: NodeType.EnumDeclaration;
+  name: string;
+  members: {
+    name: string;
+    value: Literal['value'];
   }[];
   exported?: boolean;
 }
