@@ -16,6 +16,11 @@ import {
 import uid from './util/uid.ts';
 import Scope from './util/scope.ts';
 import CallFrame from './util/call-frame.ts';
+import loadExtension, {
+  isExtensionImport,
+  resolveExtensionImport,
+  type LoadedExtension
+} from './util/load-extension.ts';
 import ListOperations, { listRuntimePath } from './blocks/categories/lists.ts';
 import { internals } from './blocks/categories/list-bindings.ts';
 import control from './blocks/categories/control.ts';
@@ -89,6 +94,8 @@ class Compiler {
   private _falsyList: [string, string] | null;
   private _writes: Record<string, boolean>;
   private _booleanInputs: Record<string, boolean>;
+  private _booleanReporters: Record<string, boolean>;
+  private _extensionURLs: Record<string, string>;
   private _programs: Record<string, TypeModule>;
   private _types: TypeChecker;
   private _usesThread: boolean;
@@ -159,6 +166,8 @@ class Compiler {
     this._falsyList = null;
     this._writes = {};
     this._booleanInputs = {};
+    this._booleanReporters = Object.create(null);
+    this._extensionURLs = Object.create(null);
     this._programs = {};
     this._types = new TypeChecker(globals, extensions, (source, file) => {
       return this.loadModule(this.resolveImport(source, file));
@@ -414,9 +423,8 @@ class Compiler {
       return false;
     }
 
-    const id = value[1] as string;
-
-    return [
+    const opcode = this.root.blocks[value[1] as string].opcode;
+    return this._booleanReporters[opcode] || [
       'operator_lt',
       'operator_gt',
       'operator_equals',
@@ -432,7 +440,7 @@ class Compiler {
       'sensing_mousedown',
       'sensing_loud',
       'faceSensing_faceIsDetected'
-    ].includes(this.root.blocks[id].opcode);
+    ].includes(opcode);
   }
 
   boolean (value: ScratchInput): ScratchInput {
@@ -729,6 +737,9 @@ class Compiler {
     }
 
     if (definition.blockType === 'reporter') {
+      if (definition.resultType === 'boolean') {
+        this._booleanReporters[block.opcode] = true;
+      }
       return [[2, this.insertBlock(block)]];
     }
 
@@ -1820,8 +1831,13 @@ class Compiler {
         }
 
         let fileExports: Bindings;
-        if (Object.hasOwn(extensions, statement.source)) {
-          fileExports = extensions[statement.source];
+        const custom = this._programs[this._currentFile].extensionImports?.[statement.source];
+        const extension = custom?.bindings ||
+          (Object.hasOwn(extensions, statement.source) &&
+          extensions[statement.source]);
+
+        if (extension) {
+          fileExports = extension;
           if (statement.defaultImport) {
             fileExports = {
               [statement.names[0]]: {
@@ -1830,8 +1846,13 @@ class Compiler {
               }
             };
           }
-          if (!this.extensions.includes(statement.source)) {
-            this.extensions.push(statement.source);
+          for (const id of custom?.ids || [statement.source]) {
+            if (custom) {
+              this._extensionURLs[id] = custom.url;
+            }
+            if (!this.extensions.includes(id)) {
+              this.extensions.push(id);
+            }
           }
         } else {
           if (!names.length) {
@@ -2359,7 +2380,56 @@ class Compiler {
   private isFileImport (statement: Statement): statement is ImportStatement {
     return statement.type === NodeType.ImportStatement &&
       this.hasRuntimeImport(statement) &&
-      !Object.hasOwn(extensions, statement.source);
+      !Object.hasOwn(extensions, statement.source) &&
+      !isExtensionImport(statement.source);
+  }
+
+  private async loadExtensions (entry: TypeModule) {
+    const visited: Record<string, boolean> = Object.create(null);
+    const sources: Record<string, LoadedExtension> = Object.create(null);
+    const pending = [entry];
+
+    for (const module of pending) {
+      if (visited[module.file]) {
+        continue;
+      }
+      visited[module.file] = true;
+
+      for (const statement of module.program.body) {
+        if (statement.type !== NodeType.ImportStatement ||
+            Object.hasOwn(extensions, statement.source)) {
+          continue;
+        }
+
+        const { source } = statement;
+        if (!isExtensionImport(source)) {
+          try {
+            pending.push(this.loadModule(this.resolveImport(source, module.file)));
+          } catch {
+            // The type checker reports errors loading Claw modules.
+          }
+          continue;
+        }
+
+        module.extensionImports ||= Object.create(null);
+        if (statement.typeOnly) {
+          module.extensionImports[source] ||= null;
+          continue;
+        }
+
+        try {
+          const location = resolveExtensionImport(source, module.file);
+          sources[location] ||= await loadExtension(location);
+          module.extensionImports[source] = sources[location];
+        } catch (error) {
+          const token = module.locations.get(statement);
+          const message = error instanceof Error ? error.message : String(error);
+          throw new Error(
+            `${module.file}:${token.line}:${token.col}: Cannot import '${source}'. ${message}`
+          );
+        }
+      }
+    }
   }
 
   private collectRuntimePrograms (module: TypeModule, programs: Record<string, Program>) {
@@ -2498,6 +2568,7 @@ class Compiler {
 
   async compile (filePath: string) {
     const entry = this.loadModule(path.resolve(filePath));
+    await this.loadExtensions(entry);
     this._types.check(entry);
     if (this._types.problems.length) {
       throw new Error(this._types.problems.map(({ file, token, message }) => {
@@ -2576,10 +2647,14 @@ class Compiler {
   }
 
   toJSON () {
+    const hasCustomExtensions = Object.keys(this._extensionURLs).length > 0;
     return {
       targets: this.targets,
       monitors: this.monitors,
       extensions: this.extensions,
+      ...(hasCustomExtensions && {
+        extensionURLs: this._extensionURLs
+      }),
       meta: this.meta
     };
   }

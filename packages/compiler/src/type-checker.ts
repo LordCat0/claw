@@ -1,3 +1,4 @@
+import type { LoadedExtension } from './util/load-extension.ts';
 import {
   NodeType,
   type ArrayExpression,
@@ -95,6 +96,7 @@ export interface TypeModule {
   program: Program;
   locations: WeakMap<object, Token>;
   names: WeakMap<object, Token[]>;
+  extensionImports?: Record<string, LoadedExtension | null>;
 }
 
 interface CheckedModule {
@@ -742,8 +744,12 @@ class TypeChecker {
     let values: Record<string, ValueType>;
     let aliases: CheckedModule['aliases'];
 
-    if (Object.hasOwn(this.extensions, source)) {
-      values = this.bindingTypes(this.extensions[source]);
+    const custom = module.source.extensionImports?.[source];
+    const extension = custom === null ? {} : custom?.bindings ||
+      (Object.hasOwn(this.extensions, source) && this.extensions[source]);
+
+    if (extension) {
+      values = this.bindingTypes(extension);
       if (statement.defaultImport) {
         values = {
           [names[0]]: {
