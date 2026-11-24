@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { LoadedExtension } from './util/load-extension.ts';
@@ -103,6 +104,17 @@ export interface TypeModule {
   extensionImports?: Record<string, LoadedExtension | null>;
 }
 
+interface ModuleRequest {
+  source: string;
+  importer: string;
+  resolve: (module: TypeModule) => void;
+  reject: (error: unknown) => void;
+}
+
+interface TypeCheckerEvents {
+  loadModule: [request: ModuleRequest];
+}
+
 interface CheckedModule {
   source: TypeModule;
   values: Record<string, ValueType>;
@@ -146,7 +158,7 @@ const enum Completion {
   Exit = 8
 }
 
-class TypeChecker {
+class TypeChecker extends EventEmitter<TypeCheckerEvents> {
   problems: TypeProblem[];
   hovers: WeakMap<Token, ValueType>;
   enumTokens: WeakMap<Token, EnumToken>;
@@ -158,13 +170,10 @@ class TypeChecker {
   private modules: Record<string, CheckedModule>;
   private builtins: TypeScope;
   private extensions: Record<string, Bindings>;
-  private loadModule?: (source: string, file: string) => TypeModule;
 
-  constructor (
-    globals: Bindings,
-    extensions: Record<string, Bindings>,
-    loadModule?: (source: string, file: string) => TypeModule
-  ) {
+  constructor (globals: Bindings, extensions: Record<string, Bindings>) {
+    super();
+
     this.problems = [];
     this.hovers = new WeakMap();
     this.enumTokens = new WeakMap();
@@ -177,7 +186,6 @@ class TypeChecker {
     this.builtins = this.child();
     this.builtins.values = this.bindingTypes(globals);
     this.extensions = extensions;
-    this.loadModule = loadModule;
   }
 
   check (source: TypeModule) {
@@ -756,12 +764,40 @@ class TypeChecker {
     let values: Record<string, ValueType>;
     let aliases: CheckedModule['aliases'];
 
+    let dependency: CheckedModule;
+    let imported: TypeModule;
+    try {
+      this.emit('loadModule', {
+        source,
+        importer: module.source.file,
+        resolve: resolved => {
+          imported = resolved;
+        },
+        reject: error => {
+          throw error;
+        }
+      });
+
+      if (imported) {
+        dependency = this.check(imported);
+        if (dependency.checking) {
+          throw new Error(`Circular import involving "${imported.file}".`);
+        }
+      }
+    } catch (error) {
+      this.report(module, statement, error instanceof Error ? error.message : String(error));
+      return;
+    }
+
     const custom = module.source.extensionImports?.[source];
     const extension = custom === null ? {} : custom?.bindings ||
       (Object.hasOwn(this.extensions, source) && this.extensions[source]);
     const asset = assetImport(source);
 
-    if (asset) {
+    if (dependency) {
+      values = dependency.values;
+      aliases = dependency.aliases;
+    } else if (asset) {
       if (!statement.defaultImport || typeOnly) {
         this.report(module, statement, `Use a default import for ${asset.type} '${source}'.`);
         return;
@@ -788,22 +824,6 @@ class TypeChecker {
             members: values
           }
         };
-      }
-    } else if (this.loadModule) {
-      try {
-        const dependency = this.check(this.loadModule(source, module.source.file));
-        if (dependency.checking) {
-          throw new Error(`Circular import involving "${dependency.source.file}".`);
-        }
-        values = dependency.values;
-        aliases = dependency.aliases;
-      } catch (error) {
-        this.report(
-          module,
-          statement,
-          error instanceof Error ? error.message : String(error)
-        );
-        return;
       }
     }
 

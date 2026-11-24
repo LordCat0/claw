@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
 import JSZip from 'jszip';
@@ -76,7 +77,22 @@ const enum ProcedureExit {
   Return
 }
 
-class Compiler {
+interface ImportRequest {
+  source: string;
+  importer: string;
+  resolve: (file: string | PromiseLike<string>) => void;
+  reject: (error: unknown) => void;
+}
+
+interface CompilerEvents {
+  resolveImport: [request: ImportRequest];
+}
+
+interface CompilerModule extends TypeModule {
+  fileImports?: Record<string, CompilerModule>;
+}
+
+class Compiler extends EventEmitter<CompilerEvents> {
   targets: Sprite[];
   monitors: Monitor[];
   extensions: string[];
@@ -98,7 +114,7 @@ class Compiler {
   private _booleanInputs: Record<string, boolean>;
   private _booleanReporters: Record<string, boolean>;
   private _extensionURLs: Record<string, string>;
-  private _programs: Record<string, TypeModule>;
+  private _programs: Record<string, CompilerModule>;
   private _types: TypeChecker;
   private _usesThread: boolean;
   private _usesThrow: boolean;
@@ -107,6 +123,8 @@ class Compiler {
   private _listOperations: ListOperations;
 
   constructor () {
+    super();
+
     this.stage = newSprite({
       isStage: true,
       name: 'Stage'
@@ -155,8 +173,12 @@ class Compiler {
     this._falsyList = null;
     this._extensionURLs = Object.create(null);
     this._programs = {};
-    this._types = new TypeChecker(globals, extensions, (source, file) => {
-      return this.loadModule(this.resolveImport(source, file));
+    this._types = new TypeChecker(globals, extensions);
+    this._types.on('loadModule', ({ source, importer, resolve }) => {
+      const module = this._programs[importer].fileImports[source];
+      if (module) {
+        resolve(module);
+      }
     });
     this._usesThread = false;
     this._usesThrow = false;
@@ -1840,7 +1862,10 @@ class Compiler {
           return scope.lastBlock;
         }
 
-        const asset = assetImport(statement.source);
+        const { source } = statement;
+        const module = this._programs[this._currentFile];
+        const dependency = module.fileImports[source];
+        const asset = !dependency && assetImport(source);
         if (asset) {
           const name = this.loadAsset(statement, asset.type, asset.dataFormat);
           scope.define(names[0], {
@@ -1851,10 +1876,10 @@ class Compiler {
         }
 
         let fileExports: Bindings;
-        const custom = this._programs[this._currentFile].extensionImports?.[statement.source];
-        const extension = custom?.bindings ||
-          (Object.hasOwn(extensions, statement.source) &&
-          extensions[statement.source]);
+        const custom = module.extensionImports?.[source];
+        const extension = !dependency && (
+          custom?.bindings || (Object.hasOwn(extensions, source) && extensions[source])
+        );
 
         if (extension) {
           fileExports = extension;
@@ -1866,7 +1891,7 @@ class Compiler {
               }
             };
           }
-          for (const id of custom?.ids || [statement.source]) {
+          for (const id of custom?.ids || [source]) {
             if (custom) {
               this._extensionURLs[id] = custom.url;
             }
@@ -1878,15 +1903,14 @@ class Compiler {
           if (!names.length) {
             return scope.lastBlock;
           }
-          const resolvedPath = this.resolveImport(statement.source);
-          fileExports = this._exports[resolvedPath];
+          fileExports = this._exports[dependency.file];
           if (!fileExports) {
-            throw new Error(`No exports found from "${statement.source}"`);
+            throw new Error(`No exports found from "${source}"`);
           }
         }
         for (const name of names) {
           if (!Object.hasOwn(fileExports, name)) {
-            throw new Error(`"${name}" is not exported from "${statement.source}"`);
+            throw new Error(`"${name}" is not exported from "${source}"`);
           }
           scope.define(name, fileExports[name]);
         }
@@ -2354,13 +2378,6 @@ class Compiler {
     }
   }
 
-  resolveImport (source: string, filePath = this._currentFile) {
-    const importPath = path.resolve(path.dirname(filePath), source);
-    const resolvedPath = importPath.endsWith('.claw') ? importPath : importPath + '.claw';
-
-    return fs.realpathSync(resolvedPath);
-  }
-
   private loadAsset (statement: ImportStatement, type: AssetType, dataFormat: string) {
     const file = path.resolve(path.dirname(this._currentFile), statement.source);
     let data: Buffer;
@@ -2415,7 +2432,7 @@ class Compiler {
     return this.loadModule(filePath).program;
   }
 
-  private loadModule (filePath: string): TypeModule {
+  private loadModule (filePath: string): CompilerModule {
     let source: string;
 
     try {
@@ -2447,15 +2464,32 @@ class Compiler {
     return !statement.typeOnly && (!statement.names.length || names.length > 0);
   }
 
-  private isFileImport (statement: Statement): statement is ImportStatement {
-    return statement.type === NodeType.ImportStatement &&
-      this.hasRuntimeImport(statement) &&
-      !Object.hasOwn(extensions, statement.source) &&
-      !assetImport(statement.source) &&
-      !isExtensionImport(statement.source);
+  private runtimeImport (module: CompilerModule, statement: Statement) {
+    if (statement.type === NodeType.ImportStatement && this.hasRuntimeImport(statement)) {
+      return module.fileImports[statement.source];
+    }
   }
 
-  private async loadExtensions (entries: TypeModule[]) {
+  private async loadExternalImport (source: string, importer: string) {
+    const file = await new Promise<string>((resolve, reject) => {
+      const handled = this.emit('resolveImport', {
+        source,
+        importer,
+        resolve,
+        reject
+      });
+
+      if (!handled) {
+        reject(new Error('No import resolver is registered.'));
+      }
+    });
+
+    return this.loadModule(
+      path.resolve(path.dirname(importer), file)
+    );
+  }
+
+  private async loadImports (entries: CompilerModule[]) {
     const visited: Record<string, boolean> = Object.create(null);
     const sources: Record<string, LoadedExtension> = Object.create(null);
     const pending = [...entries];
@@ -2465,34 +2499,45 @@ class Compiler {
         continue;
       }
       visited[module.file] = true;
+      const files: Record<string, CompilerModule> = Object.create(null);
 
       for (const statement of module.program.body) {
-        if (statement.type !== NodeType.ImportStatement ||
-            Object.hasOwn(extensions, statement.source) ||
-            assetImport(statement.source)) {
+        if (statement.type !== NodeType.ImportStatement || files[statement.source]) {
           continue;
         }
 
         const { source } = statement;
-        if (!isExtensionImport(source)) {
-          try {
-            pending.push(this.loadModule(this.resolveImport(source, module.file)));
-          } catch {
-            // The type checker reports errors loading Claw modules.
-          }
-          continue;
-        }
-
-        module.extensionImports ||= Object.create(null);
-        if (statement.typeOnly) {
-          module.extensionImports[source] ||= null;
-          continue;
-        }
-
         try {
-          const location = resolveExtensionImport(source, module.file);
-          sources[location] ||= await loadExtension(location);
-          module.extensionImports[source] = sources[location];
+          const explicitClawFile = source.endsWith('.claw');
+          const file = path.resolve(
+            path.dirname(module.file),
+            explicitClawFile ? source : source + '.claw'
+          );
+          const isLocalClawImport = !source.startsWith('tw:') && (
+            explicitClawFile || fs.statSync(file, { throwIfNoEntry: false })?.isFile()
+          );
+          const asset = assetImport(source);
+          const isBuiltinExtension = Object.hasOwn(extensions, source);
+
+          if (isLocalClawImport) {
+            files[source] = this.loadModule(file);
+          } else if (asset || isBuiltinExtension) {
+            continue;
+          } else if (isExtensionImport(source)) {
+            module.extensionImports ||= Object.create(null);
+            if (statement.typeOnly) {
+              module.extensionImports[source] ||= null;
+            } else {
+              const location = resolveExtensionImport(source, module.file);
+              sources[location] ||= await loadExtension(location);
+              module.extensionImports[source] = sources[location];
+            }
+            continue;
+          } else {
+            files[source] = await this.loadExternalImport(source, module.file);
+          }
+
+          pending.push(files[source]);
         } catch (error) {
           const token = module.locations.get(statement);
           const message = error instanceof Error ? error.message : String(error);
@@ -2501,17 +2546,17 @@ class Compiler {
           );
         }
       }
+
+      module.fileImports = files;
     }
   }
 
-  private collectRuntimePrograms (module: TypeModule, programs: Record<string, Program>) {
+  private collectRuntimePrograms (module: CompilerModule, programs: Record<string, Program>) {
     programs[module.file] = module.program;
     for (const statement of module.program.body) {
-      if (this.isFileImport(statement)) {
-        const file = this.resolveImport(statement.source, module.file);
-        if (!programs[file]) {
-          this.collectRuntimePrograms(this.loadModule(file), programs);
-        }
+      const dependency = this.runtimeImport(module, statement);
+      if (dependency && !programs[dependency.file]) {
+        this.collectRuntimePrograms(dependency, programs);
       }
     }
   }
@@ -2587,8 +2632,9 @@ class Compiler {
   }
 
   async compileFile (filePath: string, internal = false) {
-    const program = this.loadProgram(filePath);
-    filePath = fs.realpathSync(filePath);
+    const module = this.loadModule(filePath);
+    const { program } = module;
+    filePath = module.file;
 
     const key = internal ? `internal:${filePath}` : filePath;
 
@@ -2598,6 +2644,10 @@ class Compiler {
 
     if (this._compiledFiles[key] === 'done') {
       return;
+    }
+
+    if (!module.fileImports) {
+      await this.loadImports([module]);
     }
 
     if (!this._startup.lastBlock) {
@@ -2615,9 +2665,10 @@ class Compiler {
       program.body.forEach(statement => this.scanWrites(statement));
 
       for (const statement of program.body) {
-        if (this.isFileImport(statement)) {
+        const dependency = this.runtimeImport(module, statement);
+        if (dependency) {
           // Imports compile without internal access
-          await this.compileFile(this.resolveImport(statement.source));
+          await this.compileFile(dependency.file);
         }
       }
 
@@ -2638,7 +2689,7 @@ class Compiler {
     }
   }
 
-  private async compileTarget (entry: TypeModule) {
+  private async compileTarget (entry: CompilerModule) {
     this.resetTargetState();
     this.readyBroadcast = uid();
     this.stage.broadcasts[this.readyBroadcast] = `$ready@${this.readyBroadcast}`;
@@ -2718,7 +2769,7 @@ class Compiler {
       module: this.loadModule(path.resolve(file))
     }));
 
-    await this.loadExtensions(entries.map(({ module }) => module));
+    await this.loadImports(entries.map(({ module }) => module));
     for (const { module } of entries) {
       this._types.check(module);
     }

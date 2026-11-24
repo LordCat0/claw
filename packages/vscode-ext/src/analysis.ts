@@ -115,14 +115,26 @@ export class Analysis {
     this.types = new TypeChecker(internal ? {
       ...globals,
       ...internals
-    } : globals, extensions, file ? (specifier, importer) => {
-      const resolved = path.resolve(path.dirname(importer), specifier);
-      const file = fs.realpathSync(resolved.endsWith('.claw') ? resolved : resolved + '.claw');
-      return {
-        file,
-        ...parse(fs.readFileSync(file, 'utf8'))
-      };
-    } : undefined);
+    } : globals, extensions);
+    this.types.on('loadModule', ({ source, importer, resolve, reject }) => {
+      const asset = assetImport(source);
+      const isBuiltinExtension = Object.hasOwn(extensions, source);
+      if (!importer || asset || isBuiltinExtension) {
+        return;
+      }
+
+      try {
+        const importPath = path.resolve(path.dirname(importer), source);
+        const clawPath = importPath.endsWith('.claw') ? importPath : importPath + '.claw';
+        const file = fs.realpathSync(clawPath);
+        resolve({
+          file,
+          ...parse(fs.readFileSync(file, 'utf8'))
+        });
+      } catch (error) {
+        reject(error);
+      }
+    });
     this.types.check({
       file,
       ...this.syntax
