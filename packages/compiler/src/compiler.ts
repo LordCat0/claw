@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import JSZip from 'jszip';
@@ -16,6 +17,7 @@ import {
 import uid from './util/uid.ts';
 import Scope from './util/scope.ts';
 import CallFrame from './util/call-frame.ts';
+import { assetImport, AssetType } from './util/asset-import.ts';
 import loadExtension, {
   isExtensionImport,
   resolveExtensionImport,
@@ -260,6 +262,10 @@ class Compiler {
     field: CallArguments['fields'][number],
     input: ScratchInput
   ): ScratchInput {
+    if (!field && input[0] === 1 && Array.isArray(input[1]) && input[1][0] === 10) {
+      field = [input[1][1], null];
+    }
+
     const shadow = this.insertBlock({
       opcode,
       fields: { [name]: field || ['', null] },
@@ -363,6 +369,10 @@ class Compiler {
   }
 
   read (variable: VariableBinding): ScratchInput {
+    if (Array.isArray(variable.get)) {
+      return variable.get;
+    }
+
     let value: ScratchInput;
 
     if (variable.storage && !variable.temporary) {
@@ -1830,6 +1840,16 @@ class Compiler {
           return scope.lastBlock;
         }
 
+        const asset = assetImport(statement.source);
+        if (asset) {
+          const name = this.loadAsset(statement, asset.type, asset.dataFormat);
+          scope.define(names[0], {
+            kind: 'variable',
+            get: [1, [10, name]]
+          });
+          return scope.lastBlock;
+        }
+
         let fileExports: Bindings;
         const custom = this._programs[this._currentFile].extensionImports?.[statement.source];
         const extension = custom?.bindings ||
@@ -2341,6 +2361,56 @@ class Compiler {
     return fs.realpathSync(resolvedPath);
   }
 
+  private loadAsset (statement: ImportStatement, type: AssetType, dataFormat: string) {
+    const file = path.resolve(path.dirname(this._currentFile), statement.source);
+    let data: Buffer;
+    try {
+      data = fs.readFileSync(file);
+    } catch {
+      const token = this._programs[this._currentFile].locations.get(statement);
+      throw new Error(
+        `${this._currentFile}:${token.line}:${token.col}: Cannot load ${type} '${statement.source}'.`
+      );
+    }
+
+    const assetId = createHash('md5').update(data).digest('hex');
+    const md5ext = `${assetId}.${dataFormat}`;
+    const basename = path.basename(file, path.extname(file));
+    const assets = type === AssetType.Costume
+      ? this.root.costumes : this.root.sounds;
+
+    // Find a good name for the asset
+    let name = basename;
+    let suffix = 2;
+    let existing = assets.find(asset => asset.name === name);
+    while (existing && existing.md5ext !== md5ext) {
+      name = `${basename}${suffix++}`;
+      existing = assets.find(asset => asset.name === name);
+    }
+
+    if (!existing) {
+      const asset = {
+        name,
+        assetId,
+        dataFormat,
+        md5ext
+      };
+      if (type === AssetType.Costume) {
+        this.root.costumes.push({
+          ...asset,
+          bitmapResolution: 1
+        });
+      } else if (type === AssetType.Sound) {
+        this.root.sounds.push(asset);
+      } else {
+        // ???
+      }
+      this._zip.file(md5ext, data);
+    }
+
+    return name;
+  }
+
   loadProgram (filePath: string): Program {
     return this.loadModule(filePath).program;
   }
@@ -2381,6 +2451,7 @@ class Compiler {
     return statement.type === NodeType.ImportStatement &&
       this.hasRuntimeImport(statement) &&
       !Object.hasOwn(extensions, statement.source) &&
+      !assetImport(statement.source) &&
       !isExtensionImport(statement.source);
   }
 
@@ -2397,7 +2468,8 @@ class Compiler {
 
       for (const statement of module.program.body) {
         if (statement.type !== NodeType.ImportStatement ||
-            Object.hasOwn(extensions, statement.source)) {
+            Object.hasOwn(extensions, statement.source) ||
+            assetImport(statement.source)) {
           continue;
         }
 

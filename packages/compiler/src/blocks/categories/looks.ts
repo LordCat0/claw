@@ -48,14 +48,20 @@ export default {
         }
       })
     },
-    switchCostume: {
+    setCostume: {
       kind: 'function',
       blockType: 'command',
       args: [10],
+      argumentTypes: [['costume', 'string', 'number']],
       create: ({ inputs, fields }, compiler) => ({
         opcode: 'looks_switchcostumeto',
         inputs: {
-          COSTUME: compiler.menu('looks_costume', 'COSTUME', fields[0], inputs[0])
+          COSTUME: compiler.menu(
+            'looks_costume',
+            'COSTUME',
+            fields[0],
+            inputs[0]
+          )
         }
       })
     },

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { extensions, globals } from '../../compiler/src/blocks/index.ts';
 import { internals, listMethods } from '../../compiler/src/blocks/categories/list-bindings.ts';
 import TypeChecker from '../../compiler/src/type-checker.ts';
+import { assetImport } from '../../compiler/src/util/asset-import.ts';
 import {
   NodeType,
   TokenType,
@@ -284,6 +285,7 @@ export class Analysis {
         return false;
       }
       case NodeType.ImportStatement: {
+        const asset = assetImport(node.source);
         const members = Object.hasOwn(modules, node.source) ? modules[node.source] : undefined;
         const runtime = this.types.imports.get(node);
         for (const [index, name] of node.names.entries()) {
@@ -297,7 +299,9 @@ export class Analysis {
             this.syntax.typeTokens.push(token);
             continue;
           }
-          if (members && node.defaultImport) {
+          if (asset) {
+            this.define(scope, token, { kind: 'constant' });
+          } else if (members && node.defaultImport) {
             this.define(scope, token, {
               kind: 'object',
               members

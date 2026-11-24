@@ -1,4 +1,7 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import type { LoadedExtension } from './util/load-extension.ts';
+import { assetImport, type AssetType } from './util/asset-import.ts';
 import {
   NodeType,
   type ArrayExpression,
@@ -18,9 +21,10 @@ import {
   type TypeSyntax
 } from './types.ts';
 
-type Primitive = 'any' | 'unknown' | 'never' | 'void' | 'number' | 'string' | 'boolean';
+type Primitive = 'any' | 'unknown' | 'never' | 'void'
+  | 'number' | 'string' | 'boolean' | `${AssetType}`;
 type LiteralValue = number | string | boolean;
-type ValueType = Primitive
+export type ValueType = Primitive
   | {
     kind: 'literal';
     value: LiteralValue;
@@ -113,14 +117,16 @@ interface TypeProblem {
   message: string;
 }
 
-const primitives: Primitive[] = [
+export const primitives: Primitive[] = [
   'any',
   'unknown',
   'never',
   'void',
   'number',
   'string',
-  'boolean'
+  'boolean',
+  'costume',
+  'sound'
 ];
 const utilityArity: Record<string, number> = {
   Array: 1,
@@ -251,10 +257,13 @@ class TypeChecker {
         case 'function':
           return [name, {
             kind: 'function',
-            params: binding.args.map((_, index) => ({
-              name: `arg${index + 1}`,
-              type: 'any'
-            })),
+            params: binding.args.map((_, index) => {
+              const types = binding.argumentTypes?.[index];
+              return {
+                name: `arg${index + 1}`,
+                type: types ? this.union(types) : 'any'
+              };
+            }),
             result: () => binding.resultType ||
               (binding.blockType === 'reporter' ? 'any' : 'void')
           }];
@@ -264,6 +273,9 @@ class TypeChecker {
             element: 'any'
           }];
         default:
+          if (Array.isArray(binding.get)) {
+            return [name, 'string'];
+          }
           return [name, binding.get.resultType ||
             (binding.boolean ? 'boolean' : 'any')];
       }
@@ -747,8 +759,27 @@ class TypeChecker {
     const custom = module.source.extensionImports?.[source];
     const extension = custom === null ? {} : custom?.bindings ||
       (Object.hasOwn(this.extensions, source) && this.extensions[source]);
+    const asset = assetImport(source);
 
-    if (extension) {
+    if (asset) {
+      if (!statement.defaultImport || typeOnly) {
+        this.report(module, statement, `Use a default import for ${asset.type} '${source}'.`);
+        return;
+      }
+
+      if (module.source.file) {
+        try {
+          const file = path.resolve(path.dirname(module.source.file), source);
+          if (!fs.statSync(file).isFile()) {
+            throw new Error('Expected a file.');
+          }
+        } catch {
+          this.report(module, statement, `Cannot load ${asset.type} '${source}'.`);
+        }
+      }
+
+      values = { [names[0]]: asset.type };
+    } else if (extension) {
       values = this.bindingTypes(extension);
       if (statement.defaultImport) {
         values = {

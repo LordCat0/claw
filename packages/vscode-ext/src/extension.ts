@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { Keyword, TokenType } from '../../compiler/src/types.ts';
+import { primitives } from '../../compiler/src/type-checker.ts';
 import { Analysis } from './analysis.ts';
 import type { Range } from './parser.ts';
 
@@ -10,7 +11,6 @@ const semanticTokens = new vscode.SemanticTokensLegend(
   ['type', 'keyword', 'enum', 'enumMember', 'property'],
   ['defaultLibrary']
 );
-const primitiveTypes = ['any', 'unknown', 'never', 'void', 'number', 'string', 'boolean'];
 const itemKinds = {
   function: vscode.CompletionItemKind.Function,
   variable: vscode.CompletionItemKind.Variable,
@@ -145,7 +145,7 @@ export function activate (context: vscode.ExtensionContext) {
           if (name === Keyword.type) {
             tokens.push(editorRange(document, token), 'keyword');
           } else {
-            const modifiers = primitiveTypes.includes(name) ? ['defaultLibrary'] : [];
+            const modifiers = primitives.some(type => type === name) ? ['defaultLibrary'] : [];
             tokens.push(editorRange(document, token), 'type', modifiers);
           }
         }

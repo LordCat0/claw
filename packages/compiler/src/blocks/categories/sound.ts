@@ -6,21 +6,33 @@ export default {
       kind: 'function',
       blockType: 'command',
       args: [10],
+      argumentTypes: [['sound', 'string', 'number']],
       create: ({ inputs, fields }, compiler) => ({
         opcode: 'sound_playuntildone',
         inputs: {
-          SOUND_MENU: compiler.menu('sound_sounds_menu', 'SOUND_MENU', fields[0], inputs[0])
+          SOUND_MENU: compiler.menu(
+            'sound_sounds_menu',
+            'SOUND_MENU',
+            fields[0],
+            inputs[0]
+          )
         }
       })
     },
-    startSound: {
+    playSound: {
       kind: 'function',
       blockType: 'command',
       args: [10],
+      argumentTypes: [['sound', 'string', 'number']],
       create: ({ inputs, fields }, compiler) => ({
         opcode: 'sound_play',
         inputs: {
-          SOUND_MENU: compiler.menu('sound_sounds_menu', 'SOUND_MENU', fields[0], inputs[0])
+          SOUND_MENU: compiler.menu(
+            'sound_sounds_menu',
+            'SOUND_MENU',
+            fields[0],
+            inputs[0]
+          )
         }
       })
     },

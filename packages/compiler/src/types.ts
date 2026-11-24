@@ -1,6 +1,6 @@
 import type CallFrame from './util/call-frame.ts';
 import type Compiler from './compiler.ts';
-import type { StructType } from './type-checker.ts';
+import type { StructType, ValueType } from './type-checker.ts';
 
 // Tokens
 
@@ -437,7 +437,7 @@ export interface Sprite {
   comments: Record<string, Comment>;
   currentCostume: number;
   costumes: Costume[];
-  sounds: Record<string, ScratchValue>[];
+  sounds: ScratchAsset[];
   volume: number;
   layerOrder: number;
   tempo: number;
@@ -456,14 +456,17 @@ interface Comment {
   text: string;
 }
 
-interface Costume {
+interface ScratchAsset {
   name: string;
-  bitmapResolution: number;
   dataFormat: string;
   assetId: string;
   md5ext: string;
-  rotationCenterX: number;
-  rotationCenterY: number;
+}
+
+interface Costume extends ScratchAsset {
+  bitmapResolution: number;
+  rotationCenterX?: number;
+  rotationCenterY?: number;
 }
 
 export interface BlockOptions extends Partial<ScratchBlock> {
@@ -498,6 +501,7 @@ export interface FunctionBinding {
   compile?: () => Promise<void>;
   listCallback?: (list: ListBinding) => Promise<FunctionBinding>;
   args: FunctionArgument[];
+  argumentTypes?: ValueType[][];
   structParams?: (StructType | undefined)[];
   create: (args: CallArguments, compiler: Compiler) => BlockOptions;
   shared?: boolean;
@@ -513,7 +517,7 @@ export interface VariableBinding {
   temporary?: boolean;
   boolean?: boolean;
   constantValue?: Literal;
-  get: FunctionBinding;
+  get: FunctionBinding | [1, [10, string]];
   set?: FunctionBinding;
   storage?: {
     name: string;
