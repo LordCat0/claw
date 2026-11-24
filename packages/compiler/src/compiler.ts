@@ -107,7 +107,12 @@ class Compiler {
   private _listOperations: ListOperations;
 
   constructor () {
-    this.targets = [];
+    this.stage = newSprite({
+      isStage: true,
+      name: 'Stage'
+    });
+    this.root = this.stage;
+    this.targets = [this.stage];
     this.monitors = [];
     this.extensions = [];
     this.meta = {
@@ -117,14 +122,6 @@ class Compiler {
     };
 
     this._zip = new JSZip();
-
-    this.targets.push(newSprite({
-      isStage: true,
-      name: 'Stage'
-    }));
-    this.targets.push(newSprite({ name: 'vm' }));
-    this.stage = this.targets[0];
-    this.root = this.targets[1];
 
     this.stage.comments[uid()] = {
       blockId: null,
@@ -153,22 +150,9 @@ class Compiler {
       y: 5
     });
 
-    this._exports = {};
-    this._compiledFiles = {};
-    this._startup = new Scope();
-    this.builtins = null;
-    this._lists = {};
-    this._frameSizes = [];
-    this._listOperations = new ListOperations(this);
-    this.readyBroadcast = uid();
-    this.stage.broadcasts[this.readyBroadcast] = `$ready@${this.readyBroadcast}`;
+    this.readyBroadcast = '';
     this._currentFile = null;
-    this._globals = new Scope();
-    this._capturedInputs = {};
     this._falsyList = null;
-    this._writes = {};
-    this._booleanInputs = {};
-    this._booleanReporters = Object.create(null);
     this._extensionURLs = Object.create(null);
     this._programs = {};
     this._types = new TypeChecker(globals, extensions, (source, file) => {
@@ -176,6 +160,22 @@ class Compiler {
     });
     this._usesThread = false;
     this._usesThrow = false;
+    this.resetTargetState();
+  }
+
+  private resetTargetState () {
+    this._exports = {};
+    this._compiledFiles = {};
+    this._startup = new Scope();
+    this.builtins = null;
+    this._lists = {};
+    this._frameSizes = [];
+    this._listOperations = new ListOperations(this);
+    this._globals = new Scope();
+    this._capturedInputs = {};
+    this._writes = {};
+    this._booleanInputs = {};
+    this._booleanReporters = Object.create(null);
     Object.assign(this._globals.bindings, globals);
   }
 
@@ -2455,10 +2455,10 @@ class Compiler {
       !isExtensionImport(statement.source);
   }
 
-  private async loadExtensions (entry: TypeModule) {
+  private async loadExtensions (entries: TypeModule[]) {
     const visited: Record<string, boolean> = Object.create(null);
     const sources: Record<string, LoadedExtension> = Object.create(null);
-    const pending = [entry];
+    const pending = [...entries];
 
     for (const module of pending) {
       if (visited[module.file]) {
@@ -2638,15 +2638,10 @@ class Compiler {
     }
   }
 
-  async compile (filePath: string) {
-    const entry = this.loadModule(path.resolve(filePath));
-    await this.loadExtensions(entry);
-    this._types.check(entry);
-    if (this._types.problems.length) {
-      throw new Error(this._types.problems.map(({ file, token, message }) => {
-        return `${file}:${token.line}:${token.col}: ${message}`;
-      }).join('\n'));
-    }
+  private async compileTarget (entry: TypeModule) {
+    this.resetTargetState();
+    this.readyBroadcast = uid();
+    this.stage.broadcasts[this.readyBroadcast] = `$ready@${this.readyBroadcast}`;
 
     const runtime: Record<string, Program> = Object.create(null);
     this.collectRuntimePrograms(entry, runtime);
@@ -2659,7 +2654,7 @@ class Compiler {
     this._usesThread = programs.some(program => this.usesThread(program));
     this._usesThrow = programs.some(program => this.usesThrow(program));
     this.builtins = await this.compileFile(listRuntimePath, true);
-    await this.compileFile(path.resolve(filePath));
+    await this.compileFile(entry.file);
 
     const initialize = new Scope();
 
@@ -2711,6 +2706,39 @@ class Compiler {
     });
 
     this.pruneBlocks();
+  }
+
+  async compile (files: string | Record<string, string>) {
+    const sprites = typeof files === 'string' ? {
+        [this.stage.name]: files
+      } : files;
+
+    const entries = Object.entries(sprites).map(([name, file]) => ({
+      name,
+      module: this.loadModule(path.resolve(file))
+    }));
+
+    await this.loadExtensions(entries.map(({ module }) => module));
+    for (const { module } of entries) {
+      this._types.check(module);
+    }
+
+    if (this._types.problems.length) {
+      throw new Error(this._types.problems.map(({ file, token, message }) => {
+        return `${file}:${token.line}:${token.col}: ${message}`;
+      }).join('\n'));
+    }
+
+    for (const { name, module } of entries) {
+      this.root = this.stage;
+      if (name !== this.stage.name) {
+        this.root = newSprite({ name });
+        this.root.layerOrder = this.targets.length;
+        this.targets.push(this.root);
+      }
+
+      await this.compileTarget(module);
+    }
 
     const projectJSON = this.toJSON();
     const costume = fs.readFileSync(new URL(`./assets/${EMPTY_COSTUME_FILE}`, import.meta.url));

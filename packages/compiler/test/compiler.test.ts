@@ -27,7 +27,7 @@ test('emits a Scratch archive', async () => {
     }
   }
 
-  const sprite = project.targets.find(target => !target.isStage);
+  const sprite = project.targets.find(target => target.isStage);
   assert.ok(sprite);
   const { blocks } = sprite;
   const repeat = Object.entries(blocks).find(([, block]) => block.opcode === 'control_repeat');
