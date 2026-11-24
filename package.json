@@ -3,13 +3,18 @@
   "version": "1.0.0",
   "private": true,
   "workspaces": [
-    "packages/*"
+    "packages/compiler",
+    "packages/cli",
+    "packages/shared",
+    "packages/backend",
+    "packages/vscode-ext",
+    "packages/web"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "start": "npm run start --workspace=compiler"
+    "start": "claw build"
   },
   "license": "GPL-3.0-only"
 }

@@ -8,8 +8,7 @@
   "scripts": {
     "build": "tsc && node scripts/copy-assets.js",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-transform-types --test test/*.test.ts",
-    "start": "node dist/src/index.js"
+    "test": "node --experimental-transform-types --test test/*.test.ts"
   },
   "repository": {
     "type": "git",
