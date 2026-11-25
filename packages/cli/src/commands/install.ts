@@ -4,6 +4,7 @@ import { pipeline } from 'node:stream/promises';
 import { dirname, join } from 'node:path';
 import { createGunzip } from 'node:zlib';
 import { extract } from 'tar-stream';
+import chalk from 'chalk';
 import { backendURL, packageDirectory } from '../config.ts';
 import { getClawFile, writeClawFile } from '../util/claw-file.ts';
 
@@ -16,6 +17,7 @@ export default async function install(packages: string[]) {
 
   const clawFile = getClawFile();
 
+  const start = Date.now();
   for (const specifier of packages) {
     const [name, version = 'latest', extra] = specifier.split('@');
     if (!version || extra !== undefined) {
@@ -50,4 +52,6 @@ export default async function install(packages: string[]) {
   }
 
   await writeClawFile(clawFile);
+  const elapsed = Date.now() - start;
+  console.log(`Installed ${chalk.greenBright(packages.length)} package(s) in ${chalk.yellowBright(elapsed + 'ms')}`);
 }
