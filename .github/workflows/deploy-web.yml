@@ -4,6 +4,12 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    paths:
+      - '.github/workflows/deploy-web.yml'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'packages/shared/**'
+      - 'packages/web/**'
 
 permissions:
   contents: read
