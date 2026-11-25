@@ -8,7 +8,8 @@ import {
   ChevronRight,
   Languages,
   LogOut,
-  Settings
+  Settings,
+  User
 } from 'lucide-preact';
 import { useRef } from 'preact/hooks';
 import * as styles from './profile-menu.css';
@@ -24,7 +25,7 @@ export default function ProfileMenu() {
     return null;
   }
 
-  const name = user.fullName || user.username || gt('Account');
+  const name = user.username || user.fullName || gt('Unknown');
 
   return (
     <Menu.Root modal={false}>
@@ -50,6 +51,13 @@ export default function ProfileMenu() {
               <span className={styles.email}>{user.primaryEmailAddress?.emailAddress}</span>
             </div>
             <Menu.Separator className={styles.separator} />
+            <Menu.Item
+              className={styles.item}
+              render={<a href={`/profile/${user.id}`} />}
+            >
+              <User size={16} aria-hidden="true" />
+              <T>View profile</T>
+            </Menu.Item>
             <Menu.SubmenuRoot>
               <Menu.SubmenuTrigger className={styles.item}>
                 <Languages size={16} aria-hidden="true" />

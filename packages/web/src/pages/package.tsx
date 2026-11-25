@@ -8,6 +8,7 @@ import PackageCode from '../components/package/package-code';
 import PackageDependents from '../components/package/package-dependents';
 import PackageReadme from '../components/package/package-readme';
 import PackageSidebar from '../components/package/package-sidebar';
+import UserLink from '../components/user-link/user-link';
 import { env } from '../config';
 import type { PackageMetadata } from 'shared';
 import * as styles from './package.css';
@@ -182,6 +183,10 @@ export default function Package(props: PackageProps) {
                             {release.version === pkg.latest && (
                               <span className={styles.badge}><T>latest</T></span>
                             )}
+                            <UserLink
+                              id={release.publisherId}
+                              className={styles.link}
+                            />
                           </div>
                           <time className={styles.message} dateTime={release.publishedAt}>
                             {new Date(release.publishedAt).toLocaleDateString(locale)}

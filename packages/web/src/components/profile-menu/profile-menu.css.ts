@@ -90,6 +90,8 @@ export const item = style({
   minHeight: 32,
   padding: '0 8px',
   borderRadius: 2,
+  color: 'inherit',
+  textDecoration: 'none',
   cursor: 'pointer',
   outline: 'none',
   userSelect: 'none',

@@ -14,6 +14,7 @@ import gtConfig from '../gt.config.json';
 import { env } from './config';
 import Home from './pages/home';
 import Package from './pages/package';
+import Profile from './pages/profile';
 import Search from './pages/search';
 import { theme } from './styles/theme.css';
 import './styles/global.css';
@@ -103,6 +104,7 @@ render(
           <Route path="/" component={Home} />
           <Route path="/search" component={Search} />
           <Route path="/package/:name" component={Package} />
+          <Route path="/profile/:id" component={Profile} />
         </Router>
       </QueryClientProvider>
     </ClerkProvider>

@@ -1,6 +1,7 @@
 import { Num, Plural, T, useLocale, Var } from 'gt-react';
-import { Clock3, Package, Tag } from 'lucide-preact';
+import { Clock3, Package, Tag, User } from 'lucide-preact';
 import type { SearchPackage } from 'shared';
+import UserLink from '../user-link/user-link';
 import * as styles from './package-list-item.css';
 
 interface PackageListItemProps {
@@ -20,6 +21,10 @@ export default function PackageListItem(props: PackageListItemProps) {
         <p className={styles.description}>{pkg.description}</p>
       )}
       <div className={styles.metadata}>
+        <span className={styles.detail}>
+          <User size={15} aria-hidden="true" />
+          <UserLink id={pkg.publisherId} className={styles.link} />
+        </span>
         <span className={styles.detail}>
           <Tag size={15} aria-hidden="true" />
           <span className={styles.version}>{pkg.version}</span>

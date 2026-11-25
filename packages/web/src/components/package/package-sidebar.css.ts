@@ -150,7 +150,13 @@ export const collaborator = style({
   display: 'flex',
   alignItems: 'center',
   gap: 10,
-  fontSize: 14
+  color: theme.color.text,
+  fontSize: 14,
+  textDecoration: 'none',
+  ':hover': {
+    color: theme.brand.primary,
+    textDecoration: 'underline'
+  }
 });
 
 export const avatar = style({

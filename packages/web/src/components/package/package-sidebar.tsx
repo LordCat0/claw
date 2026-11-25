@@ -6,6 +6,7 @@ import { useMemo, useState } from 'preact/hooks';
 import { Sparklines, SparklinesLine } from 'react-sparklines';
 import type { PackageMetadata } from 'shared';
 import { theme } from '../../styles/theme.css';
+import UserLink from '../user-link/user-link';
 import * as styles from './package-sidebar.css';
 
 interface PackageSidebarProps {
@@ -126,10 +127,10 @@ export default function PackageSidebar(props: PackageSidebarProps) {
                 <Avatar.Root className={styles.avatar} aria-hidden="true">
                   <Avatar.Image className={styles.avatarImage} src={user.imageUrl} />
                   <Avatar.Fallback>
-                    {(user.username || user.fullName || '?').slice(0, 1).toUpperCase()}
+                    {(user.username || user.fullName || gt('Unknown')).slice(0, 1).toUpperCase()}
                   </Avatar.Fallback>
                 </Avatar.Root>
-                {user.username || user.fullName || <T>Package owner</T>}
+                <UserLink id={user.id} className={styles.collaborator} />
               </li>
             ))}
           </ul>

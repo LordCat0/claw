@@ -4,6 +4,7 @@ import { Num, T, useGT } from 'gt-react';
 import { useState } from 'preact/hooks';
 import { env } from '../../config';
 import type { PackageDependentsResponse } from 'shared';
+import UserLink from '../user-link/user-link';
 import * as styles from '../../pages/package.css';
 
 interface PackageDependentsProps {
@@ -54,6 +55,7 @@ export default function PackageDependents(props: PackageDependentsProps) {
             <li className={styles.dependent} key={pkg.name}>
               <a className={styles.link} href={`/package/${pkg.name}`}>{pkg.name}</a>
               <code className={styles.message}>{pkg.version}</code>
+              <UserLink id={pkg.publisherId} className={styles.link} />
               {pkg.description && <p className={styles.message}>{pkg.description}</p>}
             </li>
           ))}
