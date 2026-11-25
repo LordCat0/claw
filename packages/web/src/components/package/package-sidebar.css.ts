@@ -71,20 +71,23 @@ export const copyStatus = style({
   fontSize: 12
 });
 
-export const link = style({
-  display: 'flex',
-  alignItems: 'flex-start',
-  gap: 8,
+const link = style({
   color: theme.color.text,
   fontSize: 14,
-  fontWeight: 600,
-  lineHeight: 1.6,
   textDecoration: 'none',
   ':hover': {
     color: theme.brand.primary,
     textDecoration: 'underline'
   }
 });
+
+export const externalLink = style([link, {
+  display: 'inline-flex',
+  alignItems: 'flex-start',
+  gap: 8,
+  fontWeight: 600,
+  lineHeight: 1.6
+}]);
 
 export const downloads = style({
   display: 'flex',
@@ -146,18 +149,11 @@ export const collaborators = style({
   listStyle: 'none'
 });
 
-export const collaborator = style({
-  display: 'flex',
+export const collaborator = style([link, {
+  display: 'inline-flex',
   alignItems: 'center',
-  gap: 10,
-  color: theme.color.text,
-  fontSize: 14,
-  textDecoration: 'none',
-  ':hover': {
-    color: theme.brand.primary,
-    textDecoration: 'underline'
-  }
-});
+  gap: 10
+}]);
 
 export const avatar = style({
   display: 'grid',

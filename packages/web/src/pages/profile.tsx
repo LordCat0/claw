@@ -122,9 +122,15 @@ export default function Profile(props: ProfileProps) {
                 ))}
               </ul>
               {profile.total > pageSize && (
-                <nav className={styles.pagination} aria-label={gt('Profile packages pages')}>
+                <nav
+                  className={styles.pagination}
+                  aria-label={gt('Profile packages pages')}
+                >
                   {page > 1 && (
-                    <a className={styles.button} href={`/profile/${id}?page=${page - 1}`}>
+                    <a
+                      className={styles.button}
+                      href={`/profile/${id}?page=${page - 1}`}
+                    >
                       <T>Previous</T>
                     </a>
                   )}
@@ -132,7 +138,10 @@ export default function Profile(props: ProfileProps) {
                     <T>Page <Num>{page}</Num></T>
                   </span>
                   {page * pageSize < profile.total && page < 501 && (
-                    <a className={styles.button} href={`/profile/${id}?page=${page + 1}`}>
+                    <a
+                      className={styles.button}
+                      href={`/profile/${id}?page=${page + 1}`}
+                    >
                       <T>Next</T>
                     </a>
                   )}

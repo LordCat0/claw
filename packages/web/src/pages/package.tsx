@@ -46,7 +46,9 @@ export default function Package(props: PackageProps) {
       <Header query="" />
       <main className={styles.main}>
         {isPending && (
-          <p className={styles.message} role="status"><T>Loading package…</T></p>
+          <p className={styles.message} role="status">
+            <T>Loading package…</T>
+          </p>
         )}
         {isError && (
           <div className={styles.message} role="alert">
@@ -69,7 +71,11 @@ export default function Package(props: PackageProps) {
           <>
             <header className={styles.summary}>
               <h1 className={styles.heading}>
-                <PackageIcon size={28} className={styles.packageIcon} aria-hidden="true" />
+                <PackageIcon
+                  size={28}
+                  className={styles.packageIcon}
+                  aria-hidden="true"
+                />
                 {pkg.name}
               </h1>
               <div className={styles.metadata}>
@@ -132,7 +138,9 @@ export default function Package(props: PackageProps) {
                     <PackageReadme readme={pkg.readme} />
                     {pkg.keywords.length > 0 && (
                       <section className={styles.keywords} aria-label={gt('Keywords')}>
-                        <h2 className={styles.subheading}><T>Keywords</T></h2>
+                        <h2 className={styles.subheading}>
+                          <T>Keywords</T>
+                        </h2>
                         <div className={styles.keywordList}>
                           {pkg.keywords.map(keyword => (
                             <a
@@ -155,9 +163,13 @@ export default function Package(props: PackageProps) {
                     />
                   </Tabs.Panel>
                   <Tabs.Panel value="dependencies">
-                    <h2 className={styles.subheading}><T>Dependencies</T></h2>
+                    <h2 className={styles.subheading}>
+                      <T>Dependencies</T>
+                    </h2>
                     {pkg.dependencyCount === 0 && (
-                      <p className={styles.message}><T>This package has no dependencies.</T></p>
+                      <p className={styles.message}>
+                        <T>This package has no dependencies.</T>
+                      </p>
                     )}
                     <ul className={styles.list}>
                       {Object.entries(pkg.dependencies).map(([dependency, version]) => (
@@ -174,21 +186,24 @@ export default function Package(props: PackageProps) {
                     <PackageDependents name={pkg.name} />
                   </Tabs.Panel>
                   <Tabs.Panel value="versions">
-                    <h2 className={styles.subheading}><T>Version history</T></h2>
+                    <h2 className={styles.subheading}>
+                      <T>Version history</T>
+                    </h2>
                     <ul className={styles.list}>
                       {pkg.releases.map(release => (
                         <li className={styles.row} key={release.version}>
                           <div className={styles.release}>
                             <code>{release.version}</code>
                             {release.version === pkg.latest && (
-                              <span className={styles.badge}><T>latest</T></span>
+                              <span className={styles.badge}>
+                                <T>latest</T>
+                              </span>
                             )}
-                            <UserLink
-                              id={release.publisherId}
-                              className={styles.link}
-                            />
                           </div>
-                          <time className={styles.message} dateTime={release.publishedAt}>
+                          <time 
+                            className={styles.message}
+                            dateTime={release.publishedAt}
+                          >
                             {new Date(release.publishedAt).toLocaleDateString(locale)}
                           </time>
                         </li>

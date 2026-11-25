@@ -6,7 +6,6 @@ import { useMemo, useState } from 'preact/hooks';
 import { Sparklines, SparklinesLine } from 'react-sparklines';
 import type { PackageMetadata } from 'shared';
 import { theme } from '../../styles/theme.css';
-import UserLink from '../user-link/user-link';
 import * as styles from './package-sidebar.css';
 
 interface PackageSidebarProps {
@@ -31,6 +30,8 @@ export default function PackageSidebar(props: PackageSidebarProps) {
       setCopied(false);
     }
   };
+  const getUserDisplayName = (user: PackageMetadata['collaborators'][0]) =>
+    (user.username || user.fullName || gt('Unknown'));
 
   return (
     <aside className={styles.sidebar} aria-label={gt('Package details')}>
@@ -55,7 +56,7 @@ export default function PackageSidebar(props: PackageSidebarProps) {
       {pkg.repository && (
         <section className={styles.section}>
           <h2 className={styles.label}><T>Repository</T></h2>
-          <a className={styles.link} href={pkg.repository}>
+          <a className={styles.externalLink} href={pkg.repository}>
             <GitFork size={17} aria-hidden="true" />
             {pkg.repository.replace(/^https?:\/\//, '')}
           </a>
@@ -64,7 +65,7 @@ export default function PackageSidebar(props: PackageSidebarProps) {
       {pkg.homepage && (
         <section className={styles.section}>
           <h2 className={styles.label}><T>Homepage</T></h2>
-          <a className={styles.link} href={pkg.homepage}>
+          <a className={styles.externalLink} href={pkg.homepage}>
             <Link size={17} aria-hidden="true" />
             {pkg.homepage.replace(/^https?:\/\//, '')}
           </a>
@@ -123,14 +124,19 @@ export default function PackageSidebar(props: PackageSidebarProps) {
           <h2 className={styles.label}><T>Collaborators</T></h2>
           <ul className={styles.collaborators}>
             {pkg.collaborators.map(user => (
-              <li className={styles.collaborator} key={user.id}>
-                <Avatar.Root className={styles.avatar} aria-hidden="true">
-                  <Avatar.Image className={styles.avatarImage} src={user.imageUrl} />
-                  <Avatar.Fallback>
-                    {(user.username || user.fullName || gt('Unknown')).slice(0, 1).toUpperCase()}
-                  </Avatar.Fallback>
-                </Avatar.Root>
-                <UserLink id={user.id} className={styles.collaborator} />
+              <li key={user.id}>
+                <a className={styles.collaborator} href={`/profile/${user.id}`}>
+                  <Avatar.Root className={styles.avatar} aria-hidden="true">
+                    <Avatar.Image
+                      className={styles.avatarImage}
+                      src={user.imageUrl}
+                    />
+                    <Avatar.Fallback>
+                      {getUserDisplayName(user).slice(0, 1).toUpperCase()}
+                    </Avatar.Fallback>
+                  </Avatar.Root>
+                  {getUserDisplayName(user)}
+                </a>
               </li>
             ))}
           </ul>

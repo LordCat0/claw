@@ -66,7 +66,9 @@ export default function Search(props: SearchProps) {
               ) : <T>Search packages</T>}
             </h1>
             {query && (
-              <p className={styles.query}><T>Results for “<Var>{query}</Var>”</T></p>
+              <p className={styles.query}>
+                <T>Results for “<Var>{query}</Var>”</T>
+              </p>
             )}
           </div>
           <label className={styles.sort}>
@@ -74,7 +76,9 @@ export default function Search(props: SearchProps) {
             <select
               className={styles.select}
               value={sort}
-              onChange={event => route(searchUrl(query, event.currentTarget.value, 1))}
+              onChange={event => route(
+                searchUrl(query, event.currentTarget.value, 1)
+              )}
             >
               <option value="relevance"><T>Relevance</T></option>
               <option value="recent"><T>Recently published</T></option>
@@ -84,7 +88,9 @@ export default function Search(props: SearchProps) {
         </div>
 
         {isPending && (
-          <p className={styles.message} role="status"><T>Searching packages…</T></p>
+          <p className={styles.message} role="status">
+            <T>Searching packages…</T>
+          </p>
         )}
 
         {isError && (
@@ -114,15 +120,24 @@ export default function Search(props: SearchProps) {
         )}
 
         {data && data.total > pageSize && (
-          <nav className={styles.pagination} aria-label={gt('Search results pages')}>
+          <nav
+            className={styles.pagination}
+            aria-label={gt('Search results pages')}
+          >
             {page > 1 && (
-              <a className={styles.button} href={searchUrl(query, sort, page - 1)}>
+              <a
+                className={styles.button}
+                href={searchUrl(query, sort, page - 1)}
+              >
                 <T>Previous</T>
               </a>
             )}
             <span><T>Page <Num>{page}</Num></T></span>
             {page * pageSize < data.total && page < 501 && (
-              <a className={styles.button} href={searchUrl(query, sort, page + 1)}>
+              <a
+                className={styles.button}
+                href={searchUrl(query, sort, page + 1)}
+              >
                 <T>Next</T>
               </a>
             )}
