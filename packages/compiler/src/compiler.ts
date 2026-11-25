@@ -96,6 +96,7 @@ class Compiler extends EventEmitter<CompilerEvents> {
   targets: Sprite[];
   monitors: Monitor[];
   extensions: string[];
+  extensionURLs: Record<string, string>;
   meta: ProjectMeta;
   stage: Sprite;
   root: Sprite;
@@ -113,7 +114,6 @@ class Compiler extends EventEmitter<CompilerEvents> {
   private _writes: Record<string, boolean>;
   private _booleanInputs: Record<string, boolean>;
   private _booleanReporters: Record<string, boolean>;
-  private _extensionURLs: Record<string, string>;
   private _programs: Record<string, CompilerModule>;
   private _types: TypeChecker;
   private _usesThread: boolean;
@@ -133,6 +133,7 @@ class Compiler extends EventEmitter<CompilerEvents> {
     this.targets = [this.stage];
     this.monitors = [];
     this.extensions = [];
+    this.extensionURLs = Object.create(null);
     this.meta = {
       agent: '',
       semver: '3.0.0',
@@ -171,7 +172,6 @@ class Compiler extends EventEmitter<CompilerEvents> {
     this.readyBroadcast = '';
     this._currentFile = null;
     this._falsyList = null;
-    this._extensionURLs = Object.create(null);
     this._programs = {};
     this._types = new TypeChecker(globals, extensions);
     this._types.on('loadModule', ({ source, importer, resolve }) => {
@@ -1893,7 +1893,7 @@ class Compiler extends EventEmitter<CompilerEvents> {
           }
           for (const id of custom?.ids || [source]) {
             if (custom) {
-              this._extensionURLs[id] = custom.url;
+              this.extensionURLs[id] = custom.url;
             }
             if (!this.extensions.includes(id)) {
               this.extensions.push(id);
@@ -2798,13 +2798,13 @@ class Compiler extends EventEmitter<CompilerEvents> {
   }
 
   toJSON () {
-    const hasCustomExtensions = Object.keys(this._extensionURLs).length > 0;
+    const hasCustomExtensions = Object.keys(this.extensionURLs).length > 0;
     return {
       targets: this.targets,
       monitors: this.monitors,
       extensions: this.extensions,
       ...(hasCustomExtensions && {
-        extensionURLs: this._extensionURLs
+        extensionURLs: this.extensionURLs
       }),
       meta: this.meta
     };
