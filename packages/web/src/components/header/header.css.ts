@@ -5,14 +5,14 @@ export const header = style({
   display: 'flex',
   alignItems: 'center',
   gap: 32,
-  padding: '20px 40px',
+  padding: '8px 40px 8px 20px',
   borderTop: `4px solid ${theme.brand.primary}`,
   borderBottom: `1px solid ${theme.color.border}`,
   '@media': {
     '(max-width: 640px)': {
       flexWrap: 'wrap',
       gap: 16,
-      padding: '16px 20px'
+      padding: '6px 20px 6px 12px'
     }
   }
 });
