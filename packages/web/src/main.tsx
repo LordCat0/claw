@@ -1,4 +1,4 @@
-import { ClerkProvider } from '@clerk/react';
+import { ClerkProvider, type ClerkProviderProps } from '@clerk/react';
 import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   createOrUpdateBrowserConditionStore,
@@ -18,6 +18,15 @@ import Search from './pages/search';
 import { theme } from './styles/theme.css';
 import './styles/global.css';
 
+const clerkLocalizations: Partial<Record<string, () => Promise<ClerkProviderProps['localization']>>> = {
+  'es': () => import('@clerk/localizations/es-ES').then(module => module.esES),
+  'fr': () => import('@clerk/localizations/fr-FR').then(module => module.frFR),
+  'de': () => import('@clerk/localizations/de-DE').then(module => module.deDE),
+  'pt-BR': () => import('@clerk/localizations/pt-BR').then(module => module.ptBR),
+  'ja': () => import('@clerk/localizations/ja-JP').then(module => module.jaJP),
+  'zh-CN': () => import('@clerk/localizations/zh-CN').then(module => module.zhCN)
+};
+
 await initializeGTSPA({
   ...gtConfig,
   projectId: env.GTProjectId,
@@ -25,7 +34,10 @@ await initializeGTSPA({
 });
 
 const locale = createOrUpdateBrowserConditionStore({}).getLocale();
-const translations = await getTranslationsSnapshot(locale);
+const [translations, clerkLocalization] = await Promise.all([
+  getTranslationsSnapshot(locale),
+  clerkLocalizations[locale]?.()
+]);
 
 const queryClient = new QueryClient({
   queryCache: new QueryCache({
@@ -50,6 +62,7 @@ render(
     <DocumentLanguage />
     <ClerkProvider
       publishableKey={env.clerkPublishableKey}
+      localization={clerkLocalization}
       appearance={{
         variables: {
           colorPrimary: theme.brand.primary,
