@@ -5,6 +5,7 @@ const config = z.object({
   DATABASE_URL: z.url(),
   CLERK_PUBLISHABLE_KEY: z.string().min(1),
   CLERK_SECRET_KEY: z.string().min(1),
+  CLERK_OAUTH_CLIENT_ID: z.string().min(1),
   AWS_ENDPOINT_URL: z.url(),
   AWS_ACCESS_KEY_ID: z.string().min(1),
   AWS_SECRET_ACCESS_KEY: z.string().min(1),

@@ -1,5 +1,6 @@
 import { clerkMiddleware, getAuth } from '@clerk/express';
 import { json, Router } from 'express';
+import { env } from '../../config.ts';
 import database from '../../services/database.ts';
 import s3 from '../../services/s3.ts';
 import { publishBody } from '../../validation.ts';
@@ -10,14 +11,16 @@ const router = Router();
 router.route('/')
   .get(searchPackages)
   .post(clerkMiddleware(), (req, res, next) => {
-    const auth = getAuth(req);
+    const auth = getAuth(req, { acceptsToken: 'oauth_token' });
 
-    if (!auth.isAuthenticated || !auth.userId) {
+    if (!auth.isAuthenticated || !auth.userId
+      || auth.clientId !== env.CLERK_OAUTH_CLIENT_ID) {
       res.set('WWW-Authenticate', 'Bearer');
       res.status(401).json({ error: 'Authentication required' });
       return;
     }
 
+    res.locals.userId = auth.userId;
     next();
   }, json({ limit: '5mb' }), async (req, res) => {
     if (!req.is('application/json')) {
@@ -26,7 +29,7 @@ router.route('/')
     }
 
     const body = publishBody.parse(req.body);
-    const userId = getAuth(req).userId!;
+    const userId = res.locals.userId;
     const ownerId = await database.getOwnerId(body.name);
 
     if (ownerId !== undefined && ownerId !== userId) {

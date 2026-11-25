@@ -9,6 +9,15 @@ export function getAuth(request: Request): {
   userId: string | null;
 };
 
+export function getAuth(
+  request: Request,
+  options: { acceptsToken: 'oauth_token' }
+): {
+  isAuthenticated: boolean;
+  userId: string | null;
+  clientId: string | null;
+};
+
 export const clerkClient: {
   users: {
     getUserList(params?: {

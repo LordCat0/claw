@@ -1,6 +1,9 @@
 import meow from 'meow';
 import build from './commands/build.ts';
 import install from './commands/install.ts';
+import login from './commands/login.ts';
+import logout from './commands/logout.ts';
+import publish from './commands/publish.ts';
 import uninstall from './commands/uninstall.ts';
 
 // meow
@@ -10,6 +13,9 @@ const cli = meow({
     Usage
       $ claw build
       $ claw install <package[@version]> ...
+      $ claw login
+      $ claw logout
+      $ claw publish
       $ claw uninstall <package> ...
   `,
   allowUnknownFlags: false,
@@ -36,6 +42,15 @@ switch (command) {
     break;
   case 'install':
     await install(args);
+    break;
+  case 'login':
+    await login();
+    break;
+  case 'logout':
+    await logout();
+    break;
+  case 'publish':
+    await publish();
     break;
   case 'uninstall':
     await uninstall(args);
