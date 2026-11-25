@@ -200,7 +200,15 @@ export function activate (context: vscode.ExtensionContext) {
       }
     }),
     vscode.languages.registerDefinitionProvider(language, {
-      provideDefinition (document, position) {
+      async provideDefinition (document, position) {
+        const analysis = analyze(document);
+        const definition = analysis.definitionAt(document.offsetAt(position)) ||
+          symbolAt(document, position)?.definition;
+        if (definition) {
+          const uri = vscode.Uri.file(definition.file);
+          const target = await vscode.workspace.openTextDocument(uri);
+          return new vscode.Location(uri, editorRange(target, definition.range));
+        }
         const symbol = symbolAt(document, position);
         if (symbol?.declaration) {
           return new vscode.Location(document.uri, editorRange(document, symbol.declaration));
