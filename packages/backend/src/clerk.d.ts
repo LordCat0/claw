@@ -29,6 +29,7 @@ export const clerkClient: {
         username: string | null;
         fullName: string | null;
         imageUrl: string;
+        createdAt: number;
       }[];
       totalCount: number;
     }>;

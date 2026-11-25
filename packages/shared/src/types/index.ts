@@ -7,3 +7,4 @@ export type {
   PackageDependentsResponse
 } from './package.ts';
 export type { SearchPackage, SearchResponse } from './search.ts';
+export type { UserProfile } from './profile.ts';

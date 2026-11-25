@@ -6,6 +6,8 @@ const text = z.string().regex(/^[^\u0000]*$/u, 'Null bytes are not allowed');
 export const packageName = z.string().min(1).max(64)
   .regex(/^[a-z0-9][a-z0-9_-]*$/, 'Use a lowercase package name');
 
+export const userId = z.string().min(1).max(128);
+
 const filePath = z.string().max(160).regex(
   /^(?:[a-zA-Z0-9_-][a-zA-Z0-9._-]*\/)*[a-zA-Z0-9_-][a-zA-Z0-9._-]*\.claw$/,
   'Use a relative .claw file path'

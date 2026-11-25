@@ -15,7 +15,7 @@ export interface PackageVersion {
   homepage: string;
   keywords: string[];
   dependencies: Record<string, string>;
-  publisherId: string | null;
+  publisherId: string;
   dist: PackageDistribution;
   publishedAt: Date;
 }
@@ -46,10 +46,12 @@ export interface PackageMetadata {
   versionCount: number;
   visibility: string;
   publishedAt: string;
+  publisherId: string;
   lastPublishedAt: string;
   releases: {
     version: string;
     publishedAt: string;
+    publisherId: string;
   }[];
   collaborators: {
     id: string;
@@ -73,5 +75,6 @@ export interface PackageDependentsResponse {
     version: string;
     description: string;
     publishedAt: string;
+    publisherId: string;
   }[];
 }

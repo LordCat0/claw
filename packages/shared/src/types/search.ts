@@ -3,6 +3,7 @@ export interface SearchPackage {
   description: string;
   version: string;
   publishedAt: string;
+  publisherId: string;
   versions: number;
 }
 

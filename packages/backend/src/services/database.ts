@@ -52,7 +52,7 @@ class DatabaseManager {
         ADD COLUMN IF NOT EXISTS homepage TEXT NOT NULL DEFAULT '',
         ADD COLUMN IF NOT EXISTS keywords JSONB NOT NULL DEFAULT '[]',
         ADD COLUMN IF NOT EXISTS dependencies JSONB NOT NULL DEFAULT '{}',
-        ADD COLUMN IF NOT EXISTS publisher_id TEXT;
+        ADD COLUMN IF NOT EXISTS publisher_id TEXT NOT NULL;
     `);
   }
   async listPackages(
@@ -67,6 +67,7 @@ class DatabaseManager {
       WITH summaries AS (
         SELECT DISTINCT ON (name)
           name, version, description, published_at AS "publishedAt",
+          publisher_id AS "publisherId",
           COUNT(*) OVER (PARTITION BY name)::INTEGER AS versions
         FROM package_versions
         ORDER BY name, published_at DESC, version DESC
@@ -106,6 +107,34 @@ class DatabaseManager {
         downloads: downloads[pkg.name]
       }))
     };
+  }
+
+  async getUserPackages(userId: string, limit: number, offset: number) {
+    const result = await this.pool.query<SearchResponse>(`
+      WITH summaries AS (
+        SELECT DISTINCT ON (name)
+          name, version, description, published_at AS "publishedAt",
+          publisher_id AS "publisherId",
+          COUNT(*) OVER (PARTITION BY name)::INTEGER AS versions,
+          FIRST_VALUE(publisher_id) OVER (
+            PARTITION BY name ORDER BY published_at, version
+          ) AS "ownerId"
+        FROM package_versions
+        ORDER BY name, published_at DESC, version DESC
+      ), matches AS (
+        SELECT name, version, description, "publishedAt", "publisherId", versions
+        FROM summaries WHERE "ownerId" = $1
+      )
+      SELECT
+        (SELECT COUNT(*)::INTEGER FROM matches) AS total,
+        COALESCE((
+          SELECT JSON_AGG(page) FROM (
+            SELECT * FROM matches ORDER BY name LIMIT $2 OFFSET $3
+          ) page
+        ), '[]'::JSON) AS packages
+    `, [userId, limit, offset]);
+
+    return result.rows[0];
   }
 
   async recordDownload(name: string) {
@@ -164,7 +193,7 @@ class DatabaseManager {
     const result = await this.pool.query<{
       version: string;
       publishedAt: Date;
-      publisherId: string | null;
+      publisherId: string;
     }>(`
       SELECT version, published_at AS "publishedAt", publisher_id AS "publisherId"
       FROM package_versions WHERE name = $1
@@ -193,11 +222,11 @@ class DatabaseManager {
       WITH summaries AS (
         SELECT DISTINCT ON (name)
           name, version, description, dependencies,
-          published_at AS "publishedAt"
+          published_at AS "publishedAt", publisher_id AS "publisherId"
         FROM package_versions
         ORDER BY name, published_at DESC, version DESC
       ), matches AS (
-        SELECT name, version, description, "publishedAt"
+        SELECT name, version, description, "publishedAt", "publisherId"
         FROM summaries WHERE dependencies ? $1
       )
       SELECT
@@ -213,7 +242,7 @@ class DatabaseManager {
   }
 
   async getOwnerId(name: string, client: Pool | PoolClient = this.pool) {
-    const result = await client.query<{ publisherId: string | null }>(`
+    const result = await client.query<{ publisherId: string }>(`
       SELECT publisher_id AS "publisherId" FROM package_versions WHERE name = $1
       ORDER BY published_at, version LIMIT 1
     `, [name]);

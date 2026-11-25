@@ -8,6 +8,7 @@ import collectionRouter from './routes/packages/collection.ts';
 import packageDownloadRouter from './routes/packages/download.ts';
 import metadataRouter from './routes/packages/metadata.ts';
 import versionRouter from './routes/packages/version.ts';
+import profileRouter from './routes/users/profile.ts';
 
 const app = express();
 
@@ -26,6 +27,7 @@ app.use(cors({
 }));
 app.use('/health', healthRouter);
 app.use(discoveryRouter);
+app.use('/users', profileRouter);
 app.use(
   '/packages',
   collectionRouter,
