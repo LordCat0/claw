@@ -101,7 +101,6 @@ class Compiler extends EventEmitter<CompilerEvents> {
   stage: Sprite;
   root: Sprite;
   consoleList: string;
-  readyBroadcast: string;
   builtins: Scope;
   private _zip: JSZip;
   private _exports: Record<string, Bindings>;
@@ -169,7 +168,6 @@ class Compiler extends EventEmitter<CompilerEvents> {
       y: 5
     });
 
-    this.readyBroadcast = '';
     this._currentFile = null;
     this._falsyList = null;
     this._programs = {};
@@ -2691,8 +2689,6 @@ class Compiler extends EventEmitter<CompilerEvents> {
 
   private async compileTarget (entry: CompilerModule) {
     this.resetTargetState();
-    this.readyBroadcast = uid();
-    this.stage.broadcasts[this.readyBroadcast] = `$ready@${this.readyBroadcast}`;
 
     const runtime: Record<string, Program> = Object.create(null);
     this.collectRuntimePrograms(entry, runtime);
@@ -2748,13 +2744,6 @@ class Compiler extends EventEmitter<CompilerEvents> {
         this._startup.lastBlock = reset.lastBlock;
       }
     }
-
-    this.append(this._startup, {
-      opcode: 'event_broadcast',
-      inputs: {
-        BROADCAST_INPUT: [1, [11, this.stage.broadcasts[this.readyBroadcast], this.readyBroadcast]]
-      }
-    });
 
     this.pruneBlocks();
   }

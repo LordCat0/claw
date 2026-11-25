@@ -2,19 +2,6 @@ import type { Bindings } from '../../types.ts';
 
 export default {
   project: {
-    whenFlagClicked: {
-      kind: 'function',
-      blockType: 'hat',
-      args: ['body'],
-      create: ({ bodies }, compiler) => ({
-        opcode: 'event_whenbroadcastreceived',
-        fields: {
-          BROADCAST_OPTION: [compiler.stage.broadcasts[compiler.readyBroadcast], compiler.readyBroadcast]
-        },
-        topLevel: true,
-        next: bodies[0]
-      })
-    },
     whenKeyPressed: {
       kind: 'function',
       blockType: 'hat',
