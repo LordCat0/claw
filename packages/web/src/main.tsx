@@ -46,7 +46,7 @@ function DocumentLanguage() {
 }
 
 render(
-  <GTProvider locale={'es'} translations={translations}>
+  <GTProvider locale={locale} translations={translations}>
     <DocumentLanguage />
     <ClerkProvider
       publishableKey={env.clerkPublishableKey}
