@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
 import { projectSchema, packageSchema } from '../schemas.ts';
 
 export function getClawFile() {
@@ -22,4 +23,11 @@ export function getClawFile() {
   }
 
   return result.data;
+}
+
+export function writeClawFile(clawFile: ReturnType<typeof getClawFile>) {
+  return writeFile(
+    'claw.json',
+    `${JSON.stringify(clawFile, null, 2)}\n`
+  );
 }

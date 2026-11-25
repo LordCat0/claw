@@ -1,5 +1,7 @@
 import meow from 'meow';
 import build from './commands/build.ts';
+import install from './commands/install.ts';
+import uninstall from './commands/uninstall.ts';
 
 // meow
 const cli = meow({
@@ -7,8 +9,8 @@ const cli = meow({
   help: `
     Usage
       $ claw build
-
-    Compile main.claw into main.sb3 in the current directory.
+      $ claw install <package[@version]> ...
+      $ claw uninstall <package> ...
   `,
   allowUnknownFlags: false,
   flags: {
@@ -20,13 +22,24 @@ if (cli.flags.help) {
   cli.showHelp(0);
 }
 
-if (cli.input[0] !== 'build' || cli.input.length !== 1) {
-  cli.showHelp();
-}
-
-try {
-  await build();
-} catch (error) {
+const handleError = (error: Error | string) => {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
+}
+process.on('uncaughtException', handleError);
+process.on('unhandledRejection', handleError);
+
+const [command, ...args] = cli.input;
+switch (command) {
+  case 'build':
+    await build();
+    break;
+  case 'install':
+    await install(args);
+    break;
+  case 'uninstall':
+    await uninstall(args);
+    break;
+  default:
+    cli.showHelp();
 }

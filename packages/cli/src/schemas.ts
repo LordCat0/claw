@@ -9,6 +9,7 @@ const semverSchema = z.string().refine(
 const baseSchema = z.object({
   name: z.string(),
   version: semverSchema,
+  author: z.optional(z.string()),
   license: z.optional(z.string()),
   dependencies: z.optional(z.record(
     z.string(),
@@ -27,6 +28,16 @@ export const packageSchema = z.object({
   ...baseSchema.shape,
   type: z.literal('package'),
   description: z.optional(z.string()),
+  repository: z.optional(z.string()),
+  homepage: z.optional(z.string()),
   keywords: z.optional(z.array(z.string())),
   main: z.string()
+});
+
+export const packageFiles = z.object({
+  version: z.string(),
+  files: z.record(
+    z.string().regex(/^(?:[a-zA-Z0-9_-][a-zA-Z0-9._-]*\/)*[a-zA-Z0-9_-][a-zA-Z0-9._-]*\.claw$/),
+    z.string()
+  )
 });
