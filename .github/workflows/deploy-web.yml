@@ -39,8 +39,8 @@ jobs:
         uses: actions/configure-pages@v5
       - run: npm run translate --workspace web
         env:
-          VITE_GT_API_KEY: ${{ secrets.VITE_GT_API_KEY }}
-          VITE_GT_PROJECT_ID: ${{ vars.VITE_GT_PROJECT_ID }}
+          GT_API_KEY: ${{ secrets.VITE_GT_API_KEY }}
+          GT_PROJECT_ID: ${{ vars.VITE_GT_PROJECT_ID }}
       - run: npm run build --workspace web -- --base "${{ steps.pages.outputs.base_path }}/"
         env:
           VITE_API_URL: ${{ vars.VITE_API_URL }}
