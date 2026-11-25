@@ -1,4 +1,5 @@
 import meow from 'meow';
+import chalk from 'chalk';
 import build from './commands/build.ts';
 import install from './commands/install.ts';
 import login from './commands/login.ts';
@@ -29,9 +30,11 @@ if (cli.flags.help) {
 }
 
 const handleError = (error: Error | string) => {
-  console.error(error instanceof Error ? error.message : error);
+  const message = error instanceof Error ? error.message : error;
+
+  console.error(chalk.red(`Error: ${chalk.underline(message)}`));
   process.exitCode = 1;
-}
+};
 process.on('uncaughtException', handleError);
 process.on('unhandledRejection', handleError);
 
@@ -56,5 +59,11 @@ switch (command) {
     await uninstall(args);
     break;
   default:
+    if (command) {
+      throw new Error(
+        `Unknown command '${command}'. Run claw --help for usage.`
+      );
+    }
+
     cli.showHelp();
 }

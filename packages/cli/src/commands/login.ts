@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { spawn } from 'node:child_process';
+import chalk from 'chalk';
 import { clerkOAuth } from '../config.ts';
 import { writeCredential } from '../util/credentials.ts';
 import { requestOAuthToken } from '../util/oauth.ts';
@@ -96,7 +97,7 @@ export default async function login() {
     rejectLogin(new Error('Login timed out.'));
   }, 10 * 60 * 1000);
   openBrowser(authorizationURL.toString(), rejectLogin);
-  console.log('Complete the login in your browser.');
+  console.log(chalk.yellow('Complete the login in your browser.'));
 
   try {
     const loginCode = await code;
@@ -122,7 +123,7 @@ export default async function login() {
       clientId: clerkOAuth.clientId,
       tokenEndpoint
     });
-    console.log('Logged in.');
+    console.log(chalk.green('Logged in.'));
   } finally {
     clearTimeout(timeout);
     server.close();

@@ -7,19 +7,20 @@ export function getClawFile() {
     throw new Error('claw.json not found.');
   }
 
-  let clawFile;
+  let clawFile: unknown;
   try {
     clawFile = JSON.parse(readFileSync('claw.json', 'utf-8'));
   } catch {
-    throw new Error('claw.json is not JSON parsable.');
+    throw new Error('Invalid claw.json file.');
   }
 
-  const schema = clawFile.type === 'project' ?
-    projectSchema : packageSchema;
+  const isProject = typeof clawFile === 'object' && clawFile
+    && 'type' in clawFile && clawFile.type === 'project';
+  const schema = isProject ? projectSchema : packageSchema;
 
   const result = schema.safeParse(clawFile);
   if (!result.success) {
-    throw new Error(`Invalid claw.json file.\n${result.error}`);
+    throw new Error('Invalid claw.json file.');
   }
 
   return result.data;

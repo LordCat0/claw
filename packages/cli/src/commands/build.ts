@@ -14,19 +14,43 @@ export default async function build () {
 
   const output = clawFile.output || 'project.sb3';
   const compiler = new Compiler();
-  compiler.on('resolveImport', ({ source, resolve, reject }) => {
+  compiler.on('resolveImport', ({ source, resolve }) => {
     const directory = join(packageDirectory, source);
-    const manifest = JSON.parse(
-      readFileSync(join(directory, 'claw.json'), 'utf8')
-    );
-    const main = join(directory, packageSchema.parse(manifest).main);
+    const manifestPath = join(directory, 'claw.json');
+
+    if (!existsSync(directory)) {
+      throw new Error(
+        `Package is not installed. Run claw install ${source}.`
+      );
+    }
+
+    if (!existsSync(manifestPath)) {
+      throw new Error('Its claw.json file is missing.');
+    }
+
+    const contents = readFileSync(manifestPath, 'utf8');
+    let manifest: unknown;
+    try {
+      manifest = JSON.parse(contents);
+    } catch {
+      throw new Error('Its claw.json file is invalid.');
+    }
+
+    const result = packageSchema.safeParse(manifest);
+    if (!result.success) {
+      throw new Error('Its claw.json file is invalid.');
+    }
+
+    const main = join(directory, result.data.main);
 
     if (existsSync(main)) {
       resolve(main);
       return;
     }
 
-    reject(new Error(`Package '${source}' has no main file.`));
+    throw new Error(
+      `Its main file '${result.data.main}' does not exist.`
+    );
   });
   await compiler.compile(clawFile.sprites);
 

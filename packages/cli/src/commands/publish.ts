@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import { join, posix } from 'node:path';
+import chalk from 'chalk';
 import { backendURL } from '../config.ts';
 import { getClawFile } from '../util/claw-file.ts';
 import { getAccessToken } from '../util/credentials.ts';
@@ -62,5 +63,7 @@ export default async function publish() {
     throw new Error(body.error || `Publish failed with HTTP ${response.status}.`);
   }
 
-  console.log(`Published ${clawFile.name}@${clawFile.version}.`);
+  console.log(chalk.green(
+    `Published ${clawFile.name}@${clawFile.version}.`
+  ));
 }

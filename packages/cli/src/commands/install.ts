@@ -8,6 +8,12 @@ import { backendURL, packageDirectory } from '../config.ts';
 import { getClawFile, writeClawFile } from '../util/claw-file.ts';
 
 export default async function install(packages: string[]) {
+  if (packages.length === 0) {
+    throw new Error(
+      'No packages specified. Run claw install <package[@version]>.'
+    );
+  }
+
   const clawFile = getClawFile();
 
   for (const specifier of packages) {
@@ -16,9 +22,17 @@ export default async function install(packages: string[]) {
       throw new Error(`Invalid package specifier: ${specifier}`);
     }
 
-    const response = await fetch(`${backendURL}/packages/${name}/${encodeURIComponent(version)}/download`);
+    const response = await fetch(
+      `${backendURL}/packages/${name}/${encodeURIComponent(version)}/download`
+    );
+    if (response.status === 404) {
+      throw new Error(`Package ${name}@${version} was not found.`);
+    }
+
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status} while fetching package ${name}@${version}`);
+      throw new Error(
+        `HTTP ${response.status} while fetching package ${name}@${version}`
+      );
     }
 
     const archive = extract();
