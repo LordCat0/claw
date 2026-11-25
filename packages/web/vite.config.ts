@@ -4,6 +4,26 @@ import { vanillaExtractPlugin } from '@vanilla-extract/vite-plugin';
 
 export default defineConfig({
   plugins: [preact(), vanillaExtractPlugin()],
+  build: {
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            {
+              name: 'vendor-clerk',
+              test: /[\\/]node_modules[\\/]@clerk[\\/]/,
+              tags: ['$initial']
+            },
+            {
+              name: 'vendor',
+              test: /[\\/]node_modules[\\/]/,
+              tags: ['$initial']
+            }
+          ]
+        }
+      }
+    }
+  },
   server: {
     proxy: {
       '/api': {
