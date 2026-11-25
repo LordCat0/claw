@@ -100,3 +100,7 @@ export const item = style({
     }
   }
 });
+
+export const itemEnd = style({
+  marginLeft: 'auto'
+});

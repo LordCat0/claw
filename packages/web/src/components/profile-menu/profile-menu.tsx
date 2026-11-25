@@ -1,14 +1,24 @@
 import { useClerk, useUser } from '@clerk/react';
 import { Avatar } from '@base-ui/react/avatar';
 import { Menu } from '@base-ui/react/menu';
-import { T, useGT } from 'gt-react';
-import { ChevronDown, LogOut, Settings } from 'lucide-preact';
+import { T, useGT, useLocaleSelector } from 'gt-react';
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Languages,
+  LogOut,
+  Settings
+} from 'lucide-preact';
+import { useRef } from 'preact/hooks';
 import * as styles from './profile-menu.css';
 
 export default function ProfileMenu() {
   const gt = useGT();
   const { user } = useUser();
   const { openUserProfile, signOut } = useClerk();
+  const { locale, locales, getLocaleProperties, setLocale } = useLocaleSelector();
+  const menuPositioner = useRef<HTMLDivElement>(null);
 
   if (!user) {
     return null;
@@ -28,6 +38,7 @@ export default function ProfileMenu() {
       </Menu.Trigger>
       <Menu.Portal>
         <Menu.Positioner
+          ref={menuPositioner}
           className={styles.positioner}
           align="end"
           sideOffset={8}
@@ -39,6 +50,38 @@ export default function ProfileMenu() {
               <span className={styles.email}>{user.primaryEmailAddress?.emailAddress}</span>
             </div>
             <Menu.Separator className={styles.separator} />
+            <Menu.SubmenuRoot>
+              <Menu.SubmenuTrigger className={styles.item}>
+                <Languages size={16} aria-hidden="true" />
+                <T>Set Language</T>
+                <ChevronRight className={styles.itemEnd} size={16} aria-hidden="true" />
+              </Menu.SubmenuTrigger>
+              <Menu.Portal container={menuPositioner}>
+                <Menu.Positioner
+                  className={styles.positioner}
+                  sideOffset={4}
+                  collisionPadding={16}
+                >
+                  <Menu.Popup className={styles.content}>
+                    <Menu.RadioGroup value={locale} onValueChange={setLocale}>
+                      {locales.map(availableLocale => (
+                        <Menu.RadioItem
+                          className={styles.item}
+                          value={availableLocale}
+                          key={availableLocale}
+                          closeOnClick
+                        >
+                          <span>{getLocaleProperties(availableLocale).nameWithRegionCode}</span>
+                          <Menu.RadioItemIndicator className={styles.itemEnd}>
+                            <Check size={16} aria-hidden="true" />
+                          </Menu.RadioItemIndicator>
+                        </Menu.RadioItem>
+                      ))}
+                    </Menu.RadioGroup>
+                  </Menu.Popup>
+                </Menu.Positioner>
+              </Menu.Portal>
+            </Menu.SubmenuRoot>
             <Menu.Item
               className={styles.item}
               onClick={() => openUserProfile()}
