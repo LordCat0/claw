@@ -2,6 +2,7 @@ import meow from 'meow';
 import chalk from 'chalk';
 import build from './commands/build.ts';
 import ci from './commands/ci.ts';
+import init from './commands/init.ts';
 import install from './commands/install.ts';
 import login from './commands/login.ts';
 import logout from './commands/logout.ts';
@@ -15,6 +16,7 @@ const cli = meow({
     Usage
       $ claw build
       $ claw ci
+      $ claw init [project|package] [name]
       $ claw install [package[@version] ...]
       $ claw login
       $ claw logout
@@ -47,6 +49,9 @@ switch (command) {
     break;
   case 'ci':
     await ci();
+    break;
+  case 'init':
+    await init(args);
     break;
   case 'install':
     await install(args);
