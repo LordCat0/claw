@@ -3,7 +3,6 @@ import { readdir, readFile } from 'node:fs/promises';
 import { extname, join, matchesGlob, posix } from 'node:path';
 import chalk from 'chalk';
 import { getRegistryURL } from '../config.ts';
-import { getClawFile } from '../util/claw-file.ts';
 import { getAccessToken } from '../util/credentials.ts';
 
 interface IgnoreRule {
@@ -77,12 +76,6 @@ async function readPackageFiles(
 }
 
 export default async function publish() {
-  const clawFile = getClawFile();
-
-  if (clawFile.type !== 'package') {
-    throw new Error('Only packages can be published.');
-  }
-
   const registryURL = getRegistryURL();
   const files = await readPackageFiles(await readIgnoreRules());
   files['claw.json'] = await readFile('claw.json', 'utf8');
@@ -95,26 +88,23 @@ export default async function publish() {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      ...clawFile,
-      description: clawFile.description || '',
       readme: existsSync('README.md')
         ? await readFile('README.md', 'utf8')
         : '',
-      license: clawFile.license || '',
-      repository: clawFile.repository || '',
-      homepage: clawFile.homepage || '',
-      keywords: clawFile.keywords || [],
-      dependencies: clawFile.dependencies || {},
       files
     })
   });
-  const body = await response.json() as { error?: string };
+  const body = await response.json() as {
+    error?: string;
+    name: string;
+    version: string;
+  };
 
   if (!response.ok) {
     throw new Error(body.error || `Publish failed with HTTP ${response.status}.`);
   }
 
   console.log(chalk.green(
-    `Published ${clawFile.name}@${clawFile.version}.`
+    `Published ${body.name}@${body.version}.`
   ));
 }

@@ -4,6 +4,8 @@ import { basename, resolve } from 'node:path';
 import chalk from 'chalk';
 import { packageNameSchema } from '../schemas.ts';
 
+const defaultClawFile = 'print("Hello world!");';
+
 export default async function init(args: string[]) {
   const [type = 'project', name = basename(resolve()), extra] = args;
   if (!['project', 'package'].includes(type) || extra) {
@@ -14,31 +16,33 @@ export default async function init(args: string[]) {
     throw new Error('Package names must use lowercase letters, numbers, - or _.');
   }
 
-  const source = type === 'project' ? 'stage.claw' : 'index.claw';
+  const source = type === 'project'
+    ? 'sprites/stage.claw' : 'index.claw';
+
   if (existsSync('claw.json') || existsSync(source)) {
     throw new Error('A Claw project already exists here.');
   }
 
   const manifest = type === 'project'
-    ? {
-        name,
-        version: '1.0.0',
-        type,
-        sprites: {
-          Stage: source
-        }
-      }
-    : {
-        name,
-        version: '1.0.0',
-        type,
-        main: source
-      };
+  ? {
+    name,
+    version: '1.0.0',
+    type,
+    sprites: {
+      Stage: source
+    }
+  } : {
+    name,
+    version: '1.0.0',
+    type,
+    main: source
+  };
 
-  await Promise.all([
-    writeFile('claw.json', `${JSON.stringify(manifest, null, 2)}\n`),
-    writeFile(source, '')
-  ]);
+  await writeFile(
+    'claw.json',
+    `${JSON.stringify(manifest, null, 2)}\n`
+  ),
+  await writeFile(source, defaultClawFile)
 
   console.log(chalk.green(`Created ${name}.`));
 }

@@ -40,12 +40,12 @@ const link = z.union([
   text.trim().max(2000).pipe(z.url({ protocol: /^https?$/ }))
 ]).default('');
 
-export const publishBody = z.object({
+const publishManifest = z.object({
   name: packageName,
   version: packageVersion,
+  type: z.literal('package'),
   description: text.trim().max(500).default(''),
   main: clawFilePath.default('index.claw'),
-  readme: text.max(1_000_000).default(''),
   license: text.trim().max(100).default(''),
   repository: link,
   homepage: link,
@@ -59,18 +59,23 @@ export const publishBody = z.object({
   ).refine(
     dependencies => Object.keys(dependencies).length <= 100,
     'Include at most 100 dependencies'
-  ).default({}),
-  files: z.record(packageFilePath, text).refine(
-    files => Object.keys(files).length > 0
-      && Object.keys(files).length <= 100,
-    'Include between 1 and 100 package files'
-  )
+  ).default({})
+});
+
+const publishedFiles = z.record(packageFilePath, text).refine(
+  files => Object.keys(files).length > 0
+    && Object.keys(files).length <= 100,
+  'Include between 1 and 100 package files'
+).refine(files => Object.hasOwn(files, 'claw.json'), {
+  message: 'claw.json must be included in files'
+});
+
+const publishedPackage = publishManifest.extend({
+  readme: text.max(1_000_000).default(''),
+  files: publishedFiles
 }).refine(body => Object.hasOwn(body.files, body.main), {
   message: 'The main file must be included in files',
   path: ['main']
-}).refine(body => Object.hasOwn(body.files, 'claw.json'), {
-  message: 'claw.json must be included in files',
-  path: ['files']
 }).refine(body => !Object.hasOwn(body.dependencies, body.name), {
   message: 'A package cannot depend on itself',
   path: ['dependencies']
@@ -88,6 +93,29 @@ export const publishBody = z.object({
       });
     }
   }
+});
+
+export const publishBody = z.object({
+  readme: text.max(1_000_000).default(''),
+  files: publishedFiles
+}).transform((body, context) => {
+  let manifest: Record<string, unknown>;
+
+  try {
+    manifest = JSON.parse(body.files['claw.json']) as Record<string, unknown>;
+  } catch {
+    context.addIssue({
+      code: 'custom',
+      message: 'claw.json must use valid JSON',
+      path: ['files', 'claw.json']
+    });
+    return z.NEVER;
+  }
+
+  return publishedPackage.parse({
+    ...manifest,
+    ...body
+  });
 });
 
 export const pageQuery = z.object({

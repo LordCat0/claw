@@ -9,10 +9,7 @@ import logout from './commands/logout.ts';
 import publish from './commands/publish.ts';
 import uninstall from './commands/uninstall.ts';
 
-// meow
-const cli = meow({
-  importMeta: import.meta,
-  help: `
+const help = `
     Usage
       $ claw build
       $ claw ci
@@ -22,16 +19,25 @@ const cli = meow({
       $ claw logout
       $ claw publish
       $ claw uninstall <package> ...
-  `,
-  allowUnknownFlags: false,
-  flags: {
-    help: { type: 'boolean' }
-  }
+  `;
+
+const cli = meow({
+  importMeta: import.meta,
+  commands: [
+    'build',
+    'ci',
+    'init',
+    'install',
+    'login',
+    'logout',
+    'publish',
+    'uninstall'
+  ],
+  help,
+  allowUnknownFlags: false
 });
 
-if (cli.flags.help) {
-  cli.showHelp(0);
-}
+const args = cli.input;
 
 const handleError = (error: Error | string) => {
   const message = error instanceof Error ? error.message : error;
@@ -42,8 +48,7 @@ const handleError = (error: Error | string) => {
 process.on('uncaughtException', handleError);
 process.on('unhandledRejection', handleError);
 
-const [command, ...args] = cli.input;
-switch (command) {
+switch (cli.command) {
   case 'build':
     await build();
     break;
@@ -69,11 +74,5 @@ switch (command) {
     await uninstall(args);
     break;
   default:
-    if (command) {
-      throw new Error(
-        `Unknown command '${command}'. Run claw --help for usage.`
-      );
-    }
-
     cli.showHelp();
 }
