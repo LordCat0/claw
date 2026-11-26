@@ -112,10 +112,19 @@ export const publishBody = z.object({
     return z.NEVER;
   }
 
-  return publishedPackage.parse({
+  const result = publishedPackage.safeParse({
     ...manifest,
     ...body
   });
+
+  if (!result.success) {
+    for (const issue of result.error.issues) {
+      context.addIssue({ ...issue });
+    }
+    return z.NEVER;
+  }
+
+  return result.data;
 });
 
 export const pageQuery = z.object({

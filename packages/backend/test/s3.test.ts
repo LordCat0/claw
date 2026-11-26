@@ -9,9 +9,12 @@ import { publishBody } from '../src/validation.ts';
 
 test('round-trips package source through a content-addressed archive', async ({ mock }) => {
   const body = publishBody.parse({
-    name: 'claw-tools',
-    version: '1.2.0',
     files: {
+      'claw.json': JSON.stringify({
+        name: 'claw-tools',
+        version: '1.2.0',
+        type: 'package'
+      }),
       'index.claw': 'var message = "Hello, 世界";',
       'src/empty.claw': ''
     }

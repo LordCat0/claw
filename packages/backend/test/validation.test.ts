@@ -5,15 +5,23 @@ import { listQuery, packageVersion, publishBody, requestedVersion } from '../src
 const manifest = {
   name: 'claw-tools',
   version: '1.2.0',
-  files: { 'index.claw': 'var value = 1;' }
+  type: 'package'
+};
+const files = {
+  'claw.json': JSON.stringify(manifest),
+  'index.claw': 'var value = 1;'
 };
 
 test('accepts a nested entry point and a dependency range', () => {
   const body = publishBody.parse({
-    ...manifest,
-    main: 'src/main.claw',
-    files: { 'src/main.claw': 'var value = 1;' },
-    dependencies: { helpers: '^2.0.0' }
+    files: {
+      'claw.json': JSON.stringify({
+        ...manifest,
+        main: 'src/main.claw',
+        dependencies: { helpers: '^2.0.0' }
+      }),
+      'src/main.claw': 'var value = 1;'
+    }
   });
 
   assert.equal(body.main, 'src/main.claw');
@@ -23,9 +31,8 @@ test('accepts a nested entry point and a dependency range', () => {
 test('rejects published files outside the package root', () => {
   for (const path of ['../index.claw', '/index.claw', 'src/../../index.claw']) {
     const result = publishBody.safeParse({
-      ...manifest,
       files: {
-        ...manifest.files,
+        ...files,
         [path]: 'var value = 2;'
       }
     });
@@ -37,9 +44,14 @@ test('rejects published files outside the package root', () => {
 
 test('rejects an omitted entry file and a dependency on the package itself', () => {
   const result = publishBody.safeParse({
-    ...manifest,
-    main: 'missing.claw',
-    dependencies: { [manifest.name]: '^1.0.0' }
+    files: {
+      ...files,
+      'claw.json': JSON.stringify({
+        ...manifest,
+        main: 'missing.claw',
+        dependencies: { [manifest.name]: '^1.0.0' }
+      })
+    }
   });
 
   assert.ok(!result.success);
@@ -63,11 +75,11 @@ test('converts search pagination and enforces page bounds', () => {
   assert.equal(listQuery.safeParse({ offset: '10001' }).success, false);
 });
 
-test('accepts exact semantic versions and reserves latest for requests', () => {
+test('accepts package versions and requested version ranges', () => {
   const version = '2.0.0-rc.1+build.7';
   assert.equal(packageVersion.parse(version), version);
   assert.equal(requestedVersion.parse(version), version);
   assert.equal(requestedVersion.parse('latest'), 'latest');
+  assert.equal(requestedVersion.parse('^2.0.0'), '^2.0.0');
   assert.equal(packageVersion.safeParse('latest').success, false);
-  assert.equal(requestedVersion.safeParse('^2.0.0').success, false);
 });

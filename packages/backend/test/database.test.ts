@@ -5,9 +5,14 @@ import database from '../src/services/database.ts';
 import { publishBody } from '../src/validation.ts';
 
 const body = publishBody.parse({
-  name: 'claw-tools',
-  version: '1.2.0',
-  files: { 'index.claw': 'var value = 1;' }
+  files: {
+    'claw.json': JSON.stringify({
+      name: 'claw-tools',
+      version: '1.2.0',
+      type: 'package'
+    }),
+    'index.claw': 'var value = 1;'
+  }
 });
 const dist = {
   tarball: `/packages/${body.name}/${body.version}/download`,
