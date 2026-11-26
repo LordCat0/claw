@@ -70,6 +70,21 @@ test('emits a Scratch archive', async () => {
   assert.deepEqual(done.inputs.MESSAGE, [1, [10, 'done']]);
 });
 
+test('compiles the stage and sprites', async () => {
+  const compiler = new Compiler();
+  const source = fileURLToPath(new URL('./fixtures/project.claw', import.meta.url));
+  await compiler.compile({
+    Stage: source,
+    Cat: source
+  });
+
+  assert.deepEqual(compiler.targets.map(target => target.name), ['Stage', 'Cat']);
+  for (const target of compiler.targets) {
+    assert.ok(Object.values(target.blocks).some(block => block.opcode === 'control_repeat'));
+    assert.ok(Object.values(target.lists).some(([name]) => name.startsWith('values@')));
+  }
+});
+
 test('initializes a shared import once before its consumers', async () => {
   const compiler = new Compiler();
   const source = fileURLToPath(new URL('./fixtures/imports/entry.claw', import.meta.url));
@@ -104,4 +119,24 @@ test('rejects a circular file import', async () => {
   const compiler = new Compiler();
   const source = fileURLToPath(new URL('./fixtures/circular.claw', import.meta.url));
   await assert.rejects(compiler.compile(source), /Circular import involving .*circular\.claw/);
+});
+
+test('loads a custom extension', async () => {
+  const compiler = new Compiler();
+  const source = fileURLToPath(new URL('./fixtures/extension.claw', import.meta.url));
+  await compiler.compile(source);
+
+  assert.deepEqual(compiler.extensions, ['fixture']);
+  assert.match(compiler.extensionURLs.fixture, /^data:application\/javascript;base64,/);
+  assert.ok(Object.values(compiler.root.blocks).some(block => block.opcode === 'fixture_echo'));
+});
+
+test('rejects a broken custom extension', async () => {
+  const compiler = new Compiler();
+  const source = fileURLToPath(new URL('./fixtures/broken-extension.claw', import.meta.url));
+
+  await assert.rejects(
+    compiler.compile(source),
+    /Cannot import '.\/broken-extension\.js'.*Broken extension/
+  );
 });

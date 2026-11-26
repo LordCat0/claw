@@ -1,0 +1,3 @@
+import fixture from './extension.js';
+
+sprite.say(fixture.echo('hello'));
