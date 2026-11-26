@@ -3,11 +3,11 @@ import { theme } from '../../styles/theme.css';
 
 export const trigger = style({
   display: 'grid',
-  gridTemplateColumns: '32px minmax(0, 1fr) 16px',
+  gridTemplateColumns: '28px minmax(0, 1fr) 16px',
   alignItems: 'center',
   gap: 10,
   width: 176,
-  minHeight: 44,
+  minHeight: 40,
   padding: '5px 10px',
   border: `1px solid ${theme.color.border}`,
   borderRadius: 4,
@@ -25,8 +25,8 @@ export const trigger = style({
 export const avatar = style({
   display: 'grid',
   placeItems: 'center',
-  width: 32,
-  height: 32,
+  width: 28,
+  height: 28,
   borderRadius: '50%',
   overflow: 'hidden'
 });

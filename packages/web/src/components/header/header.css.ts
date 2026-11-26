@@ -48,7 +48,7 @@ export const searchButton = style({
   placeItems: 'center',
   flexShrink: 0,
   width: 44,
-  height: 44,
+  height: 40,
   padding: 0,
   border: 0,
   background: 'transparent',
@@ -64,7 +64,7 @@ export const searchButton = style({
 export const searchInput = style({
   width: '100%',
   minWidth: 0,
-  height: 44,
+  height: 40,
   border: 0,
   background: 'transparent',
   color: theme.color.text,
