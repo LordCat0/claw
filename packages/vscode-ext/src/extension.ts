@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { Keyword, TokenType } from '../../compiler/src/types.ts';
 import { primitives } from '../../compiler/src/type-checker.ts';
 import { Analysis } from './analysis.ts';
+import { Imports } from './imports.ts';
 import type { Range } from './parser.ts';
 
 const language = 'claw';
@@ -18,6 +19,7 @@ const itemKinds = {
   parameter: vscode.CompletionItemKind.Variable,
   object: vscode.CompletionItemKind.Module,
   import: vscode.CompletionItemKind.Reference,
+  type: vscode.CompletionItemKind.TypeParameter,
   enum: vscode.CompletionItemKind.Enum,
   enumMember: vscode.CompletionItemKind.EnumMember
 };
@@ -36,7 +38,10 @@ function describe (symbol: Symbol) {
 }
 
 export function activate (context: vscode.ExtensionContext) {
-  const cache = new WeakMap<vscode.TextDocument, { version: number; analysis: Analysis }>();
+  const cache = new WeakMap<vscode.TextDocument, {
+    version: number;
+    analysis: Promise<Analysis>;
+  }>();
   const validationTimers = new WeakMap<vscode.TextDocument, ReturnType<typeof setTimeout>>();
   const diagnostics = vscode.languages.createDiagnosticCollection(language);
 
@@ -48,7 +53,7 @@ export function activate (context: vscode.ExtensionContext) {
 
     const internal = document.uri.path.endsWith('/packages/compiler/src/internal/lists.claw');
     const file = document.uri.scheme === 'file' ? document.uri.fsPath : '';
-    const analysis = new Analysis(document.getText(), internal, file);
+    const analysis = Analysis.create(document.getText(), internal, file);
     cache.set(document, {
       version: document.version,
       analysis
@@ -56,12 +61,17 @@ export function activate (context: vscode.ExtensionContext) {
     return analysis;
   }
 
-  function validate (document: vscode.TextDocument) {
+  async function validate (document: vscode.TextDocument) {
     if (document.languageId !== language) {
       return;
     }
 
-    const { syntax, errors, unreachable } = analyze(document);
+    const pending = analyze(document);
+    const { syntax, errors, unreachable } = await pending;
+    if (document.isClosed || cache.get(document)?.analysis !== pending ||
+        cache.get(document)?.version !== document.version) {
+      return;
+    }
     const problems = [...syntax.errors, ...errors].map(error => {
       let { start, end } = error;
       if (start === end) {
@@ -90,9 +100,7 @@ export function activate (context: vscode.ExtensionContext) {
     diagnostics.set(document.uri, problems);
   }
 
-  function symbolAt (document: vscode.TextDocument, position: vscode.Position) {
-    const analysis = analyze(document);
-    const offset = document.offsetAt(position);
+  function symbolAt (analysis: Analysis, offset: number) {
     const index = analysis.syntax.tokens.findIndex(token => token.start <= offset && offset < token.end);
     return analysis.resolve(index, analysis.symbolsAt(offset));
   }
@@ -113,20 +121,29 @@ export function activate (context: vscode.ExtensionContext) {
       clearTimeout(validationTimers.get(document));
       validationTimers.delete(document);
       diagnostics.delete(document.uri);
+      cache.delete(document);
     }),
-    vscode.workspace.onDidSaveTextDocument(saved => {
-      if (saved.languageId === language && saved.uri.scheme === 'file') {
-        for (const document of vscode.workspace.textDocuments) {
-          if (document !== saved && cache.get(document)?.analysis.types.hasModule(saved.uri.fsPath)) {
-            cache.delete(document);
-            validate(document);
-          }
+    vscode.workspace.onDidSaveTextDocument(async saved => {
+      if (saved.uri.scheme !== 'file') {
+        return;
+      }
+      const file = saved.uri.fsPath;
+      Imports.invalidate(file);
+      for (const document of vscode.workspace.textDocuments) {
+        const cached = cache.get(document);
+        if (!cached || document === saved) {
+          continue;
+        }
+        const analysis = await cached.analysis;
+        if (cache.get(document) === cached && analysis.imports.files[file]) {
+          cache.delete(document);
+          validate(document);
         }
       }
     }),
     vscode.languages.registerDocumentSemanticTokensProvider(language, {
-      provideDocumentSemanticTokens (document) {
-        const analysis = analyze(document);
+      async provideDocumentSemanticTokens (document) {
+        const analysis = await analyze(document);
         const tokens = new vscode.SemanticTokensBuilder(semanticTokens);
         for (const token of analysis.syntax.tokens) {
           const kind = analysis.types.enumTokens.get(token);
@@ -153,8 +170,8 @@ export function activate (context: vscode.ExtensionContext) {
       }
     }, semanticTokens),
     vscode.languages.registerCompletionItemProvider(language, {
-      provideCompletionItems (document, position) {
-        const analysis = analyze(document);
+      async provideCompletionItems (document, position) {
+        const analysis = await analyze(document);
         const offset = document.offsetAt(position);
         const { ignored, tokens } = analysis.syntax;
         if (ignored.some(range => range.start < offset && offset <= range.end)) {
@@ -183,12 +200,12 @@ export function activate (context: vscode.ExtensionContext) {
       }
     }, '.'),
     vscode.languages.registerHoverProvider(language, {
-      provideHover (document, position) {
-        const analysis = analyze(document);
+      async provideHover (document, position) {
+        const analysis = await analyze(document);
         const offset = document.offsetAt(position);
         const token = analysis.syntax.tokens.find(token => token.start <= offset && offset < token.end);
         const type = token && analysis.types.hovers.get(token);
-        const symbol = symbolAt(document, position);
+        const symbol = symbolAt(analysis, offset);
         if (type || symbol) {
           const signature = type ? `${token.value}: ${analysis.types.describe(type)}` : describe(symbol);
           const contents = new vscode.MarkdownString().appendCodeblock(signature, 'typescript');
@@ -201,23 +218,23 @@ export function activate (context: vscode.ExtensionContext) {
     }),
     vscode.languages.registerDefinitionProvider(language, {
       async provideDefinition (document, position) {
-        const analysis = analyze(document);
-        const definition = analysis.definitionAt(document.offsetAt(position)) ||
-          symbolAt(document, position)?.definition;
+        const analysis = await analyze(document);
+        const offset = document.offsetAt(position);
+        const symbol = symbolAt(analysis, offset);
+        const definition = analysis.definitionAt(offset) || symbol?.definition;
         if (definition) {
           const uri = vscode.Uri.file(definition.file);
           const target = await vscode.workspace.openTextDocument(uri);
           return new vscode.Location(uri, editorRange(target, definition.range));
         }
-        const symbol = symbolAt(document, position);
         if (symbol?.declaration) {
           return new vscode.Location(document.uri, editorRange(document, symbol.declaration));
         }
       }
     }),
     vscode.languages.registerSignatureHelpProvider(language, {
-      provideSignatureHelp (document, position) {
-        const analysis = analyze(document);
+      async provideSignatureHelp (document, position) {
+        const analysis = await analyze(document);
         const offset = document.offsetAt(position);
         const { tokens } = analysis.syntax;
         const symbols = analysis.symbolsAt(offset);

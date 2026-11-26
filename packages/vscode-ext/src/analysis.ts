@@ -1,10 +1,7 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { extensions, globals } from '../../compiler/src/blocks/index.ts';
 import { internals, listMethods } from '../../compiler/src/blocks/categories/list-bindings.ts';
 import TypeChecker, { type ValueType } from '../../compiler/src/type-checker.ts';
 import { assetImport } from '../../compiler/src/util/asset-import.ts';
-import { isExtensionImport } from '../../compiler/src/util/load-extension.ts';
 import {
   NodeType,
   TokenType,
@@ -14,11 +11,13 @@ import {
   type FunctionBinding,
   type Statement
 } from '../../compiler/src/types.ts';
-import { parse, type Problem, type Range, type SourceToken } from './parser.ts';
+import type { Problem, Range, SourceToken } from './parser.ts';
+import { Imports } from './imports.ts';
 
 interface Symbol {
   name: string;
-  kind: 'function' | 'variable' | 'constant' | 'parameter' | 'object' | 'import' | 'enum' | 'enumMember';
+  kind: 'function' | 'variable' | 'constant' | 'parameter'
+    | 'object' | 'import' | 'type' | 'enum' | 'enumMember';
   origin?: string;
   parameters?: string[];
   blockType?: FunctionBinding['blockType'];
@@ -43,6 +42,7 @@ interface Scope extends Range {
   parent?: Scope;
   kind: 'module' | 'block' | 'function' | 'loop' | 'switch' | 'try';
   symbols: Symbol[];
+  types?: Symbol[];
 }
 
 interface Procedure {
@@ -104,24 +104,32 @@ const listMembers: Symbols = {
 };
 
 export class Analysis {
-  syntax: ReturnType<typeof parse>;
+  syntax: Imports['entry'];
   types: TypeChecker;
   structFields: SourceToken[] = [];
   scopes: Scope[];
   errors: Problem[] = [];
   unreachable: Range[] = [];
-  private file: string;
   private internal: boolean;
   private builtins: Symbols;
   private definitions: { source: Range; target: Definition }[] = [];
-  private importFiles: Record<string, Record<string, string>> = Object.create(null);
-  private moduleExports: Record<string, Record<string, Range>> = Object.create(null);
+  private dependencies: Record<string, Imports['entry']> = Object.create(null);
   private functions: Procedure[] = [];
   private reachable = true;
 
-  constructor (source: string, internal = false, file = '') {
-    this.syntax = parse(source);
-    this.file = file;
+  static async create (source: string, internal = false, file = '') {
+    const imports = new Imports(source, file);
+    await imports.load();
+    return new Analysis(source, internal, file, imports);
+  }
+
+  constructor (
+    source: string,
+    internal = false,
+    file = '',
+    readonly imports = new Imports(source, file)
+  ) {
+    this.syntax = imports.entry;
     this.internal = internal;
     this.builtins = internal ? internalBuiltins : builtins;
     this.types = new TypeChecker(internal ? {
@@ -129,31 +137,17 @@ export class Analysis {
       ...internals
     } : globals, extensions);
     this.types.on('loadModule', ({ source, importer, resolve, reject }) => {
-      if (!importer) {
-        return;
-      }
-
       try {
-        const file = this.resolveImport(source, importer);
-        if (!file) {
-          return;
+        const syntax = imports.resolve(source, importer);
+        if (syntax && importer === file) {
+          this.dependencies[source] = syntax;
         }
-        const syntax = parse(fs.readFileSync(file, 'utf8'));
-        this.importFiles[importer] ||= Object.create(null);
-        this.importFiles[importer][source] = file;
-        this.moduleExports[file] = this.findExports(syntax);
-        resolve({
-          file,
-          ...syntax
-        });
+        resolve(syntax);
       } catch (error) {
         reject(error);
       }
     });
-    this.types.check({
-      file,
-      ...this.syntax
-    });
+    this.types.check(this.syntax);
     for (const problem of this.types.problems) {
       if (problem.file === file) {
         this.report(problem.message, problem.token as SourceToken);
@@ -172,92 +166,34 @@ export class Analysis {
     }
   }
 
-  private resolveImport (source: string, importer: string) {
-    const importPath = path.resolve(path.dirname(importer), source);
-    const clawPath = importPath.endsWith('.claw') ? importPath : importPath + '.claw';
-    if (source.endsWith('.claw') || fs.statSync(clawPath, { throwIfNoEntry: false })?.isFile()) {
-      return fs.realpathSync(clawPath);
-    }
-    if (assetImport(source) || Object.hasOwn(extensions, source) || isExtensionImport(source)) {
-      return;
-    }
-
-    for (let directory = path.dirname(importer);;) {
-      const packageDirectory = path.join(directory, 'claw_modules', source);
-      const manifestPath = path.join(packageDirectory, 'claw.json');
-      if (fs.statSync(manifestPath, { throwIfNoEntry: false })?.isFile()) {
-        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-        if (typeof manifest.main !== 'string') {
-          throw new Error(`Package '${source}' has no main file.`);
-        }
-        const main = path.join(packageDirectory, manifest.main);
-        if (fs.statSync(main, { throwIfNoEntry: false })?.isFile()) {
-          return fs.realpathSync(main);
-        }
-        throw new Error(`Package '${source}' has no main file.`);
-      }
-
-      const parent = path.dirname(directory);
-      if (parent === directory) {
-        throw new Error(`Cannot find package '${source}'.`);
-      }
-      directory = parent;
-    }
-  }
-
-  private findExports (syntax: ReturnType<typeof parse>) {
-    const declarations: Record<string, Range> = Object.create(null);
-    const exports: string[] = [];
-    for (const statement of syntax.program.body) {
-      if ('name' in statement && typeof statement.name === 'string') {
-        const [token] = syntax.names.get(statement) || [];
-        if (token) {
-          declarations[statement.name] = token;
-        }
-        if ('exported' in statement && statement.exported) {
-          exports.push(statement.name);
-        }
-      } else if (statement.type === NodeType.ExportStatement) {
-        exports.push(...statement.names);
-      }
-    }
-    return Object.fromEntries(exports.flatMap(name => {
-      return declarations[name] ? [[name, declarations[name]]] : [];
-    }));
-  }
-
   private importSymbol (
     source: string,
     type: ValueType | undefined,
     definition?: Definition
   ): Omit<Symbol, 'name'> {
-    const origin = `Import from '${source}'`;
-    if (typeof type === 'object' && type.kind === 'function') {
-      return {
-        kind: 'function',
-        parameters: type.params.map(parameter => parameter.name),
-        origin,
-        definition
-      };
-    }
-    if (typeof type === 'object' && type.kind === 'object') {
-      return {
-        kind: 'object',
-        members: Object.fromEntries(Object.entries(type.members).map(([name, member]) => {
-          return [name, {
-            name,
-            ...this.importSymbol(source, member)
-          }];
-        })),
-        origin,
-        definition
-      };
-    }
-    return {
+    const symbol: Omit<Symbol, 'name'> = {
       kind: 'import',
-      origin,
+      origin: `Import from '${source}'`,
       definition
     };
+    if (typeof type === 'object' && type.kind === 'function') {
+      symbol.kind = 'function';
+      symbol.parameters = type.params.map(parameter => parameter.name);
+    } else if (typeof type === 'object' && type.kind === 'array') {
+      symbol.members = listMembers;
+    } else if (typeof type === 'object' && (type.kind === 'object' || type.kind === 'struct')) {
+      const members = type.kind === 'object' ? type.members : Object.fromEntries(
+        Object.entries(type.properties).map(([name, property]) => [name, property.type])
+      );
+      symbol.kind = type.kind === 'object' ? 'object' : 'import';
+      symbol.members = Object.fromEntries(Object.entries(members).map(([name, member]) => {
+        return [name, {
+          name,
+          ...this.importSymbol(source, member)
+        }];
+      }));
+    }
+    return symbol;
   }
 
   visitBody (body: Statement[], scope: Scope) {
@@ -406,14 +342,22 @@ export class Analysis {
         return false;
       }
       case NodeType.ImportStatement: {
-        const asset = assetImport(node.source);
-        const members = Object.hasOwn(modules, node.source) ? modules[node.source] : undefined;
+        const dependency = this.dependencies[node.source];
+        const importFile = dependency?.file;
+        const asset = !importFile && assetImport(node.source);
+        const custom = this.syntax.extensionImports?.[node.source];
+        let members = !importFile && Object.hasOwn(modules, node.source) ? modules[node.source] : undefined;
+        if (custom) {
+          members = describeBindings(custom.bindings, `Import from '${node.source}'`);
+        }
         const runtime = this.types.imports.get(node);
-        const importFile = this.importFiles[this.file]?.[node.source];
-        const exportRanges = importFile && this.moduleExports[importFile];
+        const declarations = dependency?.program.body.filter(statement => {
+          return 'name' in statement || statement.type === NodeType.ImportStatement;
+        }).flatMap(statement => dependency.names.get(statement) || []);
         const { first, end } = this.syntax.spans.get(node);
-        const sourceToken = this.syntax.tokens.slice(first).find(token => {
-          return token.end <= end && token.type === TokenType.STRING && token.value === node.source;
+        const sourceToken = this.syntax.tokens.find(token => {
+          return token.start >= this.syntax.tokens[first].start && token.end <= end &&
+            token.type === TokenType.STRING && token.value === node.source;
         });
         if (importFile && sourceToken) {
           this.definitions.push({
@@ -427,9 +371,10 @@ export class Analysis {
         for (const [index, name] of node.names.entries()) {
           const token = this.syntax.names.get(node)[index];
           const type = this.types.hovers.get(token);
-          const definition = importFile && exportRanges?.[name] ? {
+          const declaration = declarations?.findLast(token => token.value === name);
+          const definition = declaration ? {
             file: importFile,
-            range: exportRanges[name]
+            range: declaration
           } : undefined;
           if (definition) {
             this.definitions.push({
@@ -437,12 +382,19 @@ export class Analysis {
               target: definition
             });
           }
-          if (typeof type === 'object' && type.kind === 'enum') {
+          if (!node.typeOnly && typeof type === 'object' && type.kind === 'enum') {
             this.defineEnum(scope, token, Object.keys(type.members).map(name => ({ name })), definition);
             continue;
           }
           if (node.typeOnly || (runtime && !runtime.includes(name))) {
             this.syntax.typeTokens.push(token);
+            scope.types ||= [];
+            scope.types.push({
+              name,
+              kind: 'type',
+              declaration: token,
+              definition
+            });
             continue;
           }
           if (asset) {
@@ -794,7 +746,9 @@ export class Analysis {
     const visible: Symbol[][] = [];
     let limit = offset;
     for (let current = scope; current; current = current.parent) {
-      visible.push(current.symbols.filter(symbol => !symbol.declaration || symbol.declaration.start <= limit));
+      visible.push([...(current.types || []), ...current.symbols].filter(symbol => {
+        return !symbol.declaration || symbol.declaration.start <= limit;
+      }));
       if (current.kind === 'function') {
         limit = Infinity;
       }

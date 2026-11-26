@@ -18,7 +18,7 @@
   "categories": ["Programming Languages"],
   "main": "./dist/extension.cjs",
   "scripts": {
-    "build": "esbuild extension=src/extension.ts claw=../shared/assets/claw.svg --bundle --platform=node --target=node20 --external:vscode --loader:.svg=copy --out-extension:.js=.cjs --outdir=dist",
+    "build": "esbuild extension=src/extension.ts claw=../shared/assets/claw.svg --bundle --minify --platform=node --target=node20 --external:vscode --loader:.svg=copy --out-extension:.js=.cjs --outdir=dist",
     "package": "npx @vscode/vsce package --no-dependencies --out dist/claw.vsix",
     "preview": "npm run package && code --install-extension dist/claw.vsix --force",
     "typecheck": "tsc --noEmit",
