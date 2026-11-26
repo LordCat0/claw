@@ -5,7 +5,7 @@ import chalk from 'chalk';
 import { packageDirectory } from '../config.ts';
 import { packageSchema } from '../schemas.ts';
 import { getClawFile } from '../util/claw-file.ts';
-import Compiler from 'compiler';
+import Compiler from '../compiler/src/compiler.ts';
 
 const objectLen = (object: any) =>
   Object.keys(object).length;
