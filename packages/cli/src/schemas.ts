@@ -5,11 +5,14 @@ const semverSchema = z.string().refine(
   (value) => semverRegex().exec(value)?.[0] === value,
   { error: "Invalid semantic version" }
 );
+export const packageNameSchema = z.string()
+  .regex(/^[a-z0-9][a-z0-9_-]*$/);
 
 const lockedDependencySchema = z.object({
   specifier: z.string(),
   version: semverSchema,
   license: z.string(),
+  dependencies: z.optional(z.record(packageNameSchema, z.string())),
   resolved: z.url({ protocol: /^https?$/ }),
   integrity: z.string().regex(/^sha512-[A-Za-z0-9+/]+={0,2}$/)
 });
@@ -22,6 +25,7 @@ export const lockFileSchema = z.object({
 export const packageVersionSchema = z.object({
   version: semverSchema,
   license: z.string(),
+  dependencies: z.record(packageNameSchema, z.string()),
   dist: z.object({
     tarball: z.string().startsWith('/packages/'),
     integrity: z.string().regex(/^sha512-[A-Za-z0-9+/]+={0,2}$/)
@@ -34,7 +38,7 @@ const baseSchema = z.object({
   author: z.optional(z.string()),
   license: z.optional(z.string()),
   dependencies: z.optional(z.record(
-    z.string(),
+    packageNameSchema,
     z.string()
   ))
 });

@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { spawn } from 'node:child_process';
 import chalk from 'chalk';
-import { clerkOAuth } from '../config.ts';
+import { getClerkOAuthConfig } from '../config.ts';
 import { writeCredential } from '../util/credentials.ts';
 import { requestOAuthToken } from '../util/oauth.ts';
 
@@ -30,6 +30,7 @@ function openBrowser(url: string, onError: (error: Error) => void) {
 }
 
 export default async function login() {
+  const clerkOAuth = await getClerkOAuthConfig();
   const authorizationURL = new URL('/oauth/authorize', clerkOAuth.issuer);
   const tokenEndpoint = new URL('/oauth/token', clerkOAuth.issuer).toString();
   const state = randomBytes(32).toString('base64url');

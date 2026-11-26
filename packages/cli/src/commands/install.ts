@@ -1,14 +1,17 @@
 import { createHash } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
 import { mkdir, rm } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createGunzip } from 'node:zlib';
 import chalk from 'chalk';
 import { extract } from 'tar-stream';
-import { backendURL, packageDirectory } from '../config.ts';
-import { packageVersionSchema } from '../schemas.ts';
+import { getRegistryURL, packageDirectory } from '../config.ts';
+import {
+  packageNameSchema,
+  packageVersionSchema
+} from '../schemas.ts';
 import {
   getClawLock,
   writeClawLock,
@@ -21,8 +24,10 @@ async function resolveDependency(
   name: string,
   specifier: string
 ): Promise<LockedDependency> {
+  const registryURL = getRegistryURL();
   const response = await fetch(
-    `${backendURL}/packages/${name}/${encodeURIComponent(specifier)}`
+    `${registryURL}/packages/${encodeURIComponent(name)}`
+      + `/${encodeURIComponent(specifier)}`
   );
   if (response.status === 404) {
     throw new Error(`Package ${name}@${specifier} was not found.`);
@@ -43,7 +48,8 @@ async function resolveDependency(
     specifier,
     version: result.data.version,
     license: result.data.license,
-    resolved: `${backendURL}${result.data.dist.tarball}`,
+    dependencies: result.data.dependencies,
+    resolved: `${registryURL}${result.data.dist.tarball}`,
     integrity: result.data.dist.integrity
   };
 }
@@ -53,20 +59,52 @@ async function resolveLock(
   currentLock?: ClawLock,
   refresh: string[] = []
 ): Promise<ClawLock> {
-  const entries = await Promise.all(
-    Object.entries(dependencies).map(async ([name, specifier]) => {
-      const locked = currentLock?.dependencies[name];
-      if (locked?.specifier === specifier && !refresh.includes(name)) {
-        return [name, locked] as const;
+  const resolved: ClawLock['dependencies'] = {};
+
+  async function addDependency(
+    name: string,
+    specifier: string,
+    direct = false
+  ) {
+    const existing = resolved[name];
+    if (existing) {
+      if (existing.specifier === specifier) {
+        return;
       }
 
-      return [name, await resolveDependency(name, specifier)] as const;
-    })
-  );
+      const candidate = await resolveDependency(name, specifier);
+      if (candidate.version !== existing.version) {
+        throw new Error(`Conflicting versions requested for package ${name}.`);
+      }
+
+      if (direct) {
+        existing.specifier = specifier;
+      }
+      return;
+    }
+
+    const locked = currentLock?.dependencies[name];
+    const dependency = locked?.specifier === specifier
+      && locked.dependencies !== undefined
+      && !refresh.includes(name)
+      ? locked
+      : await resolveDependency(name, specifier);
+
+    resolved[name] = dependency;
+    for (const [child, childSpecifier] of Object.entries(
+      dependency.dependencies || {}
+    )) {
+      await addDependency(child, childSpecifier);
+    }
+  }
+
+  for (const [name, specifier] of Object.entries(dependencies)) {
+    await addDependency(name, specifier, true);
+  }
 
   return {
     lockfileVersion: 1,
-    dependencies: Object.fromEntries(entries)
+    dependencies: resolved
   };
 }
 
@@ -74,12 +112,57 @@ export function lockMatches(
   dependencies: Record<string, string>,
   lockFile: ClawLock
 ) {
-  const names = Object.keys(dependencies);
+  const pending = Object.keys(dependencies);
+  const checked: Record<string, boolean> = {};
 
-  return names.length === Object.keys(lockFile.dependencies).length
-    && names.every(name => (
-      lockFile.dependencies[name]?.specifier === dependencies[name]
-    ));
+  for (const name of pending) {
+    const locked = lockFile.dependencies[name];
+    if (!locked) {
+      return false;
+    }
+
+    if (checked[name]) {
+      continue;
+    }
+
+    if (Object.hasOwn(dependencies, name)
+      && locked.specifier !== dependencies[name]) {
+      return false;
+    }
+
+    checked[name] = true;
+    pending.push(...Object.keys(locked.dependencies || {}));
+  }
+
+  return Object.keys(checked).length
+    === Object.keys(lockFile.dependencies).length;
+}
+
+export function pruneLock(
+  dependencies: Record<string, string>,
+  lockFile: ClawLock
+) {
+  const pruned: ClawLock = {
+    lockfileVersion: 1,
+    dependencies: {}
+  };
+  const pending = Object.keys(dependencies);
+
+  for (const name of pending) {
+    if (pruned.dependencies[name]) {
+      continue;
+    }
+
+    const locked = lockFile.dependencies[name];
+    if (!locked) {
+      continue;
+    }
+
+    pruned.dependencies[name] = locked;
+    pending.push(...Object.keys(locked.dependencies || {}));
+  }
+
+  return pruned;
 }
 
 async function installPackage(name: string, dependency: LockedDependency) {
@@ -106,9 +189,14 @@ async function installPackage(name: string, dependency: LockedDependency) {
 
   const archive = extract();
   archive.on('entry', (header, stream, next) => {
-    const path = join(directory, header.name);
+    const path = resolve(directory, header.name);
+    if (header.type !== 'file' || !path.startsWith(directory + sep)) {
+      archive.destroy(new Error(`Invalid archive entry: ${header.name}`));
+      return;
+    }
+
     mkdir(dirname(path), { recursive: true })
-      .then(() => pipeline(stream, createWriteStream(path)))
+      .then(() => pipeline(stream, createWriteStream(path, { flags: 'wx' })))
       .then(() => next(), next);
   });
 
@@ -131,15 +219,18 @@ export default async function install(packages: string[]) {
   const clawFile = getClawFile();
   const dependencies = clawFile.dependencies || {};
   const refresh: string[] = [];
+  const requested: Record<string, string> = {};
 
   for (const specifier of packages) {
     const [name, version = 'latest', extra] = specifier.split('@');
-    if (!name || !version || extra !== undefined) {
+    if (!packageNameSchema.safeParse(name).success
+      || !version || extra !== undefined) {
       throw new Error(`Invalid package specifier: ${specifier}`);
     }
 
     dependencies[name] = version;
     refresh.push(name);
+    requested[name] = version;
   }
 
   const start = Date.now();
@@ -148,6 +239,13 @@ export default async function install(packages: string[]) {
     getClawLock(),
     refresh
   );
+
+  for (const [name, specifier] of Object.entries(requested)) {
+    if (specifier === 'latest') {
+      dependencies[name] = lockFile.dependencies[name].version;
+      lockFile.dependencies[name].specifier = dependencies[name];
+    }
+  }
 
   await installLockedPackages(lockFile);
 

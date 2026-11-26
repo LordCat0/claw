@@ -9,6 +9,14 @@ import { env } from '../config.ts';
 import type { PackageDistribution } from 'shared';
 import type { PublishBody } from '../validation.ts';
 
+function packageFile(path: string, source: string) {
+  if (path === 'claw.json' || path.endsWith('.claw')) {
+    return source;
+  }
+
+  return Buffer.from(source, 'base64');
+}
+
 class S3Manager {
   client: S3Client;
 
@@ -32,7 +40,7 @@ class S3Manager {
       archive.entry({
         name: path,
         mtime: new Date(0)
-      }, source);
+      }, packageFile(path, source));
     }
 
     archive.finalize();
@@ -70,7 +78,9 @@ class S3Manager {
 
     archive.on('entry', (header, stream, next) => {
       buffer(stream).then(content => {
-        files[header.name] = content.toString('utf8');
+        if (header.name === 'claw.json' || header.name.endsWith('.claw')) {
+          files[header.name] = content.toString('utf8');
+        }
         next();
       }, error => archive.destroy(error));
     });

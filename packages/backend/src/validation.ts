@@ -8,17 +8,29 @@ export const packageName = z.string().min(1).max(64)
 
 export const userId = z.string().min(1).max(128);
 
-const filePath = z.string().max(160).regex(
+const clawFilePath = z.string().max(160).regex(
   /^(?:[a-zA-Z0-9_-][a-zA-Z0-9._-]*\/)*[a-zA-Z0-9_-][a-zA-Z0-9._-]*\.claw$/,
   'Use a relative .claw file path'
 );
+const packageFilePath = text.min(1).max(160).refine(
+  path => !path.startsWith('/') && !path.includes('\\')
+    && path.split('/').every(part => part && part !== '.' && part !== '..'),
+  'Use a relative package file path'
+);
+const binaryContent = z.base64();
 
 export const packageVersion = z.string().max(32).refine(
   value => valid(value) === value.split('+')[0],
   'Use a semantic version such as 1.0.0'
 );
 
-export const requestedVersion = z.union([z.literal('latest'), packageVersion]);
+export const requestedVersion = z.union([
+  z.literal('latest'),
+  z.string().max(200).refine(
+    value => validRange(value) !== null,
+    'Use a semantic version range'
+  )
+]);
 
 const integerQuery = z.string().regex(/^\d+$/, 'Use a decimal integer')
   .transform(Number);
@@ -32,7 +44,7 @@ export const publishBody = z.object({
   name: packageName,
   version: packageVersion,
   description: text.trim().max(500).default(''),
-  main: filePath.default('index.claw'),
+  main: clawFilePath.default('index.claw'),
   readme: text.max(1_000_000).default(''),
   license: text.trim().max(100).default(''),
   repository: link,
@@ -48,17 +60,34 @@ export const publishBody = z.object({
     dependencies => Object.keys(dependencies).length <= 100,
     'Include at most 100 dependencies'
   ).default({}),
-  files: z.record(filePath, text).refine(
+  files: z.record(packageFilePath, text).refine(
     files => Object.keys(files).length > 0
       && Object.keys(files).length <= 100,
-    'Include between 1 and 100 .claw files'
+    'Include between 1 and 100 package files'
   )
 }).refine(body => Object.hasOwn(body.files, body.main), {
   message: 'The main file must be included in files',
   path: ['main']
+}).refine(body => Object.hasOwn(body.files, 'claw.json'), {
+  message: 'claw.json must be included in files',
+  path: ['files']
 }).refine(body => !Object.hasOwn(body.dependencies, body.name), {
   message: 'A package cannot depend on itself',
   path: ['dependencies']
+}).superRefine((body, context) => {
+  for (const [path, content] of Object.entries(body.files)) {
+    if (path === 'claw.json' || path.endsWith('.claw')) {
+      continue;
+    }
+
+    if (!binaryContent.safeParse(content).success) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Files must use base64 encoding',
+        path: ['files', path]
+      });
+    }
+  }
 });
 
 export const pageQuery = z.object({

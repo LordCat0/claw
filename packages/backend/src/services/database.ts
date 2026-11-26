@@ -254,16 +254,14 @@ class DatabaseManager {
     name: string,
     requestedVersion: string
   ): Promise<PackageVersion | undefined> {
-    let version = requestedVersion;
+    const metadata = await this.getVersions(name);
+    const version = maxSatisfying(
+      metadata.versions,
+      requestedVersion === 'latest' ? '*' : requestedVersion
+    );
 
-    if (version === 'latest') {
-      const metadata = await this.getVersions(name);
-
-      if (!metadata.latest) {
-        return undefined;
-      }
-
-      version = metadata.latest;
+    if (!version) {
+      return undefined;
     }
 
     const result = await this.pool.query<PackageVersion>(`
