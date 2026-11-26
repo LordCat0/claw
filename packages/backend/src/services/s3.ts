@@ -1,21 +1,14 @@
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { createHash } from 'node:crypto';
-import type { Readable } from 'node:stream';
+import { Readable } from 'node:stream';
 import { buffer } from 'node:stream/consumers';
 import { pipeline } from 'node:stream/promises';
-import { createGunzip, createGzip } from 'node:zlib';
-import { extract, pack } from 'tar-stream';
+import { createGunzip } from 'node:zlib';
+import { extract } from 'tar-stream';
+import { ZodError } from 'zod';
 import { env } from '../config.ts';
 import type { PackageDistribution } from 'shared';
-import type { PublishBody } from '../validation.ts';
-
-function packageFile(path: string, source: string) {
-  if (path === 'claw.json' || path.endsWith('.claw')) {
-    return source;
-  }
-
-  return Buffer.from(source, 'base64');
-}
+import { publishedPackage, type PublishedPackage } from '../validation.ts';
 
 class S3Manager {
   client: S3Client;
@@ -32,20 +25,57 @@ class S3Manager {
     });
   }
 
-  async uploadPackage(body: PublishBody): Promise<PackageDistribution> {
-    const archive = pack();
-    const compressed = pipeline(archive, createGzip(), buffer);
+  async parsePackage(content: Buffer): Promise<PublishedPackage> {
+    const archive = extract();
+    const files: Record<string, string> = {};
+    let fileCount = 0;
+    let totalSize = 0;
 
-    for (const [path, source] of Object.entries(body.files)) {
-      archive.entry({
-        name: path,
-        mtime: new Date(0)
-      }, packageFile(path, source));
+    archive.on('entry', (header, stream, next) => {
+      fileCount += 1;
+      totalSize += header.size;
+
+      if (header.type !== 'file' || fileCount > 100
+        || totalSize > 5 * 1024 * 1024) {
+        archive.destroy(new Error('Invalid package archive'));
+        return;
+      }
+
+      buffer(stream).then(file => {
+        if (header.name === 'claw.json' || header.name.endsWith('.claw')) {
+          files[header.name] = file.toString('utf8');
+        } else {
+          files[header.name] = file.toString('base64');
+        }
+
+        next();
+      }, error => archive.destroy(error));
+    });
+
+    try {
+      await pipeline(Readable.from(content), createGunzip(), archive);
+      const manifest = JSON.parse(files['claw.json']) as Record<string, unknown>;
+
+      return publishedPackage.parse({
+        ...manifest,
+        files
+      });
+    } catch (error) {
+      if (error instanceof ZodError) {
+        throw error;
+      }
+
+      throw Object.assign(new Error('Invalid package archive'), {
+        status: 400,
+        cause: error
+      });
     }
+  }
 
-    archive.finalize();
-
-    const content = await compressed;
+  async uploadPackage(
+    body: PublishedPackage,
+    content: Buffer
+  ): Promise<PackageDistribution> {
     const digest = createHash('sha512').update(content).digest();
 
     await this.client.send(new PutObjectCommand({
@@ -71,23 +101,49 @@ class S3Manager {
     }));
   }
 
-  async getFiles(dist: PackageDistribution): Promise<Record<string, string>> {
+  async getFileNames(dist: PackageDistribution): Promise<string[]> {
     const object = await this.downloadPackage(dist);
     const archive = extract();
-    const files: Record<string, string> = {};
+    const files: string[] = [];
 
     archive.on('entry', (header, stream, next) => {
+      if (header.name === 'claw.json' || header.name.endsWith('.claw')) {
+        files.push(header.name);
+      }
+
+      stream.on('end', next);
+      stream.resume();
+    });
+
+    await pipeline(object.Body as Readable, createGunzip(), archive);
+
+    return files;
+  }
+
+  async getFile(
+    dist: PackageDistribution,
+    path: string
+  ): Promise<Buffer | undefined> {
+    const object = await this.downloadPackage(dist);
+    const archive = extract();
+    let file: Buffer | undefined;
+
+    archive.on('entry', (header, stream, next) => {
+      if (header.name !== path) {
+        stream.on('end', next);
+        stream.resume();
+        return;
+      }
+
       buffer(stream).then(content => {
-        if (header.name === 'claw.json' || header.name.endsWith('.claw')) {
-          files[header.name] = content.toString('utf8');
-        }
+        file = content;
         next();
       }, error => archive.destroy(error));
     });
 
     await pipeline(object.Body as Readable, createGunzip(), archive);
 
-    return files;
+    return file;
   }
 
   close() {

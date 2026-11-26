@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { listQuery, packageVersion, publishBody, requestedVersion } from '../src/validation.ts';
+import { listQuery, packageVersion, publishedPackage, requestedVersion } from '../src/validation.ts';
 
 const manifest = {
   name: 'claw-tools',
@@ -13,7 +13,10 @@ const files = {
 };
 
 test('accepts a nested entry point and a dependency range', () => {
-  const body = publishBody.parse({
+  const body = publishedPackage.parse({
+    ...manifest,
+    main: 'src/main.claw',
+    dependencies: { helpers: '^2.0.0' },
     files: {
       'claw.json': JSON.stringify({
         ...manifest,
@@ -30,7 +33,8 @@ test('accepts a nested entry point and a dependency range', () => {
 
 test('rejects published files outside the package root', () => {
   for (const path of ['../index.claw', '/index.claw', 'src/../../index.claw']) {
-    const result = publishBody.safeParse({
+    const result = publishedPackage.safeParse({
+      ...manifest,
       files: {
         ...files,
         [path]: 'var value = 2;'
@@ -43,7 +47,10 @@ test('rejects published files outside the package root', () => {
 });
 
 test('rejects an omitted entry file and a dependency on the package itself', () => {
-  const result = publishBody.safeParse({
+  const result = publishedPackage.safeParse({
+    ...manifest,
+    main: 'missing.claw',
+    dependencies: { [manifest.name]: '^1.0.0' },
     files: {
       ...files,
       'claw.json': JSON.stringify({

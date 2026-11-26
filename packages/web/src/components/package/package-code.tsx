@@ -16,7 +16,12 @@ interface PackageCodeProps {
 export default function PackageCode(props: PackageCodeProps) {
   const gt = useGT();
   const [path, setPath] = useState('');
-  const { data, isPending, isError, refetch } = useQuery({
+  const {
+    data,
+    isPending,
+    isError,
+    refetch
+  } = useQuery({
     queryKey: ['package-files', props.name, props.version],
     queryFn: async ({ signal }): Promise<PackageFilesResponse> => {
       const response = await fetch(
@@ -32,7 +37,30 @@ export default function PackageCode(props: PackageCodeProps) {
       return response.json();
     }
   });
-  const source = data && Object.hasOwn(data.files, path) ? data.files[path] : undefined;
+  const isFile = data?.files.includes(path) || false;
+  const {
+    data: source,
+    isPending: isFilePending,
+    isError: isFileError,
+    refetch: refetchFile
+  } = useQuery({
+    queryKey: ['package-file', props.name, props.version, path],
+    queryFn: async ({ signal }): Promise<string> => {
+      const query = new URLSearchParams({ path });
+      const response = await fetch(
+        `${env.apiUrl}/packages/${encodeURIComponent(props.name)}`
+          + `/${encodeURIComponent(props.version)}/file?${query}`,
+        { signal }
+      );
+
+      if (!response.ok) {
+        throw new Error(`GET ${response.url} failed (${response.status})`);
+      }
+
+      return response.text();
+    },
+    enabled: isFile
+  });
   const entries = useMemo(() => {
     const children: {
       name: string;
@@ -41,7 +69,7 @@ export default function PackageCode(props: PackageCodeProps) {
     }[] = [];
     const prefix = path ? `${path}/` : '';
 
-    for (const file of Object.keys(data?.files || {})) {
+    for (const file of data?.files || []) {
       if (!file.startsWith(prefix)) {
         continue;
       }
@@ -92,10 +120,10 @@ export default function PackageCode(props: PackageCodeProps) {
               <T>Back</T>
             </Button>
             <h2 className={styles.path} aria-live="polite">
-              /{props.name}/{path}{path && source === undefined && '/'}
+              /{props.name}/{path}{path && !isFile && '/'}
             </h2>
           </header>
-          {source === undefined && (
+          {!isFile && (
             <ul className={styles.list} aria-label={gt('Files and folders')}>
               {entries.map(entry => (
                 <li key={entry.path}>
@@ -113,8 +141,21 @@ export default function PackageCode(props: PackageCodeProps) {
               ))}
             </ul>
           )}
-          {source === '' && <p className={styles.empty}><T>This file is empty.</T></p>}
-          {source !== undefined && source !== '' && (
+          {isFile && isFilePending && (
+            <p className={packageStyles.message} role="status"><T>Loading file…</T></p>
+          )}
+          {isFile && isFileError && (
+            <div className={packageStyles.message} role="alert">
+              <p><T>Could not load this file.</T></p>
+              <Button className={packageStyles.button} onClick={() => refetchFile()}>
+                <T>Try again</T>
+              </Button>
+            </div>
+          )}
+          {isFile && source === '' && (
+            <p className={styles.empty}><T>This file is empty.</T></p>
+          )}
+          {isFile && source !== undefined && source !== '' && (
             <div className={styles.source} tabIndex={0} aria-label={gt('{path} contents', { path })}>
               <pre className={styles.lineNumbers} aria-hidden="true">
                 {lines.map((_, index) => index + 1).join('\n')}

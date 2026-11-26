@@ -2,9 +2,12 @@ import assert from 'node:assert/strict';
 import { test, type TestContext } from 'node:test';
 import './env.ts';
 import database from '../src/services/database.ts';
-import { publishBody } from '../src/validation.ts';
+import { publishedPackage } from '../src/validation.ts';
 
-const body = publishBody.parse({
+const body = publishedPackage.parse({
+  name: 'claw-tools',
+  version: '1.2.0',
+  type: 'package',
   files: {
     'claw.json': JSON.stringify({
       name: 'claw-tools',

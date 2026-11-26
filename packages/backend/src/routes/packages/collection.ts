@@ -1,9 +1,8 @@
 import { clerkMiddleware, getAuth } from '@clerk/express';
-import { json, Router } from 'express';
+import { raw, Router } from 'express';
 import { env } from '../../config.ts';
 import database from '../../services/database.ts';
 import s3 from '../../services/s3.ts';
-import { publishBody } from '../../validation.ts';
 import { searchPackages } from '../discovery.ts';
 
 const router = Router();
@@ -22,13 +21,13 @@ router.route('/')
 
     res.locals.userId = auth.userId;
     next();
-  }, json({ limit: '5mb' }), async (req, res) => {
-    if (!req.is('application/json')) {
-      res.status(415).json({ error: 'Use application/json' });
+  }, raw({ limit: '5mb', type: 'application/gzip' }), async (req, res) => {
+    if (!req.is('application/gzip')) {
+      res.status(415).json({ error: 'Use application/gzip' });
       return;
     }
 
-    const body = publishBody.parse(req.body);
+    const body = await s3.parsePackage(req.body);
     const userId = res.locals.userId;
     const ownerId = await database.getOwnerId(body.name);
 
@@ -44,7 +43,7 @@ router.route('/')
       return;
     }
 
-    const dist = await s3.uploadPackage(body);
+    const dist = await s3.uploadPackage(body, req.body);
     const metadata = await database.publishPackage(body, dist, userId);
 
     if (!metadata) {

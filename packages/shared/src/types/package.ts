@@ -9,7 +9,6 @@ export interface PackageVersion {
   version: string;
   description: string;
   main: string;
-  readme: string;
   license: string;
   repository: string;
   homepage: string;
@@ -35,7 +34,6 @@ export interface PackageMetadata {
   version: string;
   latest: string;
   description: string;
-  readme: string;
   license: string;
   repository: string;
   homepage: string;
@@ -65,7 +63,7 @@ export interface PackageMetadata {
 export interface PackageFilesResponse {
   name: string;
   version: string;
-  files: Record<string, string>;
+  files: string[];
 }
 
 export interface PackageDependentsResponse {

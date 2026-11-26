@@ -1,7 +1,11 @@
 import { existsSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
-import { extname, join, matchesGlob, posix } from 'node:path';
+import { join, matchesGlob, posix } from 'node:path';
+import { buffer } from 'node:stream/consumers';
+import { pipeline } from 'node:stream/promises';
+import { createGzip } from 'node:zlib';
 import chalk from 'chalk';
+import { pack } from 'tar-stream';
 import { getRegistryURL } from '../config.ts';
 import { getAccessToken } from '../util/credentials.ts';
 
@@ -52,7 +56,7 @@ async function readPackageFiles(
   directory = '.',
   prefix = ''
 ) {
-  const files: Record<string, string> = {};
+  const files: Record<string, Buffer> = {};
 
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     if (entry.isDirectory() && entry.name === 'claw_modules') {
@@ -65,10 +69,7 @@ async function readPackageFiles(
     if (entry.isDirectory()) {
       Object.assign(files, await readPackageFiles(rules, path, name));
     } else if (entry.isFile() && !isIgnored(name, rules)) {
-      const encoding = extname(entry.name).toLowerCase() === '.claw'
-        ? 'utf8'
-        : 'base64';
-      files[name] = await readFile(path, encoding);
+      files[name] = await readFile(path);
     }
   }
 
@@ -78,21 +79,33 @@ async function readPackageFiles(
 export default async function publish() {
   const registryURL = getRegistryURL();
   const files = await readPackageFiles(await readIgnoreRules());
-  files['claw.json'] = await readFile('claw.json', 'utf8');
+  files['claw.json'] = await readFile('claw.json');
+
+  if (existsSync('README.md')) {
+    files['README.md'] = await readFile('README.md');
+  }
+
+  const packageArchive = pack();
+  const compressed = pipeline(packageArchive, createGzip(), buffer);
+
+  for (const [path, content] of Object.entries(files)) {
+    packageArchive.entry({
+      name: path,
+      mtime: new Date(0)
+    }, content);
+  }
+
+  packageArchive.finalize();
+  const archive = await compressed;
 
   const token = await getAccessToken();
   const response = await fetch(`${registryURL}/packages`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/gzip'
     },
-    body: JSON.stringify({
-      readme: existsSync('README.md')
-        ? await readFile('README.md', 'utf8')
-        : '',
-      files
-    })
+    body: archive
   });
   const body = await response.json() as {
     error?: string;

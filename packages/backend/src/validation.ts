@@ -12,7 +12,7 @@ const clawFilePath = z.string().max(160).regex(
   /^(?:[a-zA-Z0-9_-][a-zA-Z0-9._-]*\/)*[a-zA-Z0-9_-][a-zA-Z0-9._-]*\.claw$/,
   'Use a relative .claw file path'
 );
-const packageFilePath = text.min(1).max(160).refine(
+export const packageFilePath = text.min(1).max(160).refine(
   path => !path.startsWith('/') && !path.includes('\\')
     && path.split('/').every(part => part && part !== '.' && part !== '..'),
   'Use a relative package file path'
@@ -70,8 +70,7 @@ const publishedFiles = z.record(packageFilePath, text).refine(
   message: 'claw.json must be included in files'
 });
 
-const publishedPackage = publishManifest.extend({
-  readme: text.max(1_000_000).default(''),
+export const publishedPackage = publishManifest.extend({
   files: publishedFiles
 }).refine(body => Object.hasOwn(body.files, body.main), {
   message: 'The main file must be included in files',
@@ -95,38 +94,6 @@ const publishedPackage = publishManifest.extend({
   }
 });
 
-export const publishBody = z.object({
-  readme: text.max(1_000_000).default(''),
-  files: publishedFiles
-}).transform((body, context) => {
-  let manifest: Record<string, unknown>;
-
-  try {
-    manifest = JSON.parse(body.files['claw.json']) as Record<string, unknown>;
-  } catch {
-    context.addIssue({
-      code: 'custom',
-      message: 'claw.json must use valid JSON',
-      path: ['files', 'claw.json']
-    });
-    return z.NEVER;
-  }
-
-  const result = publishedPackage.safeParse({
-    ...manifest,
-    ...body
-  });
-
-  if (!result.success) {
-    for (const issue of result.error.issues) {
-      context.addIssue({ ...issue });
-    }
-    return z.NEVER;
-  }
-
-  return result.data;
-});
-
 export const pageQuery = z.object({
   limit: integerQuery.pipe(z.number().int().min(1).max(100)).default(20),
   offset: integerQuery.pipe(z.number().int().min(0).max(10_000)).default(0)
@@ -137,4 +104,4 @@ export const listQuery = pageQuery.extend({
   sort: z.enum(['relevance', 'name', 'recent']).default('relevance')
 });
 
-export type PublishBody = z.infer<typeof publishBody>;
+export type PublishedPackage = z.infer<typeof publishedPackage>;

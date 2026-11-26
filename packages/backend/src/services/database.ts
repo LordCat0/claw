@@ -9,7 +9,7 @@ import type {
   PackageDependentsResponse,
   SearchResponse
 } from 'shared';
-import type { PublishBody } from '../validation.ts';
+import type { PublishedPackage } from '../validation.ts';
 
 class DatabaseManager {
   pool: Pool;
@@ -46,7 +46,6 @@ class DatabaseManager {
       );
 
       ALTER TABLE package_versions
-        ADD COLUMN IF NOT EXISTS readme TEXT NOT NULL DEFAULT '',
         ADD COLUMN IF NOT EXISTS license TEXT NOT NULL DEFAULT '',
         ADD COLUMN IF NOT EXISTS repository TEXT NOT NULL DEFAULT '',
         ADD COLUMN IF NOT EXISTS homepage TEXT NOT NULL DEFAULT '',
@@ -265,7 +264,7 @@ class DatabaseManager {
     }
 
     const result = await this.pool.query<PackageVersion>(`
-      SELECT name, version, description, main, readme, license,
+      SELECT name, version, description, main, license,
         repository, homepage, keywords, dependencies,
         publisher_id AS "publisherId", dist,
         published_at AS "publishedAt"
@@ -277,7 +276,7 @@ class DatabaseManager {
   }
 
   async publishPackage(
-    body: PublishBody,
+    body: PublishedPackage,
     dist: PackageDistribution,
     publisherId: string
   ): Promise<PackageVersion | undefined> {
@@ -301,12 +300,12 @@ class DatabaseManager {
 
       const result = await client.query<PackageVersion>(`
         INSERT INTO package_versions (
-          name, version, description, main, readme, license,
+          name, version, description, main, license,
           repository, homepage, keywords, dependencies, publisher_id, dist
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         ON CONFLICT (name, version) DO NOTHING
-        RETURNING name, version, description, main, readme, license,
+        RETURNING name, version, description, main, license,
           repository, homepage, keywords, dependencies,
           publisher_id AS "publisherId", dist,
           published_at AS "publishedAt"
@@ -315,7 +314,6 @@ class DatabaseManager {
         body.version,
         body.description,
         body.main,
-        body.readme,
         body.license,
         body.repository,
         body.homepage,

@@ -135,7 +135,10 @@ export default function Package(props: PackageProps) {
               <div className={styles.layout}>
                 <div className={styles.content}>
                   <Tabs.Panel value="readme">
-                    <PackageReadme readme={pkg.readme} />
+                    <PackageReadme
+                      name={pkg.name}
+                      version={pkg.version}
+                    />
                     {pkg.keywords.length > 0 && (
                       <section className={styles.keywords} aria-label={gt('Keywords')}>
                         <h2 className={styles.subheading}>

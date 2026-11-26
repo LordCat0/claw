@@ -1,10 +1,13 @@
+import { useQuery } from '@tanstack/react-query';
 import { T, useGT } from 'gt-react';
 import Markdown, { type ReactRenderer } from 'marked-react';
 import type { ReactNode } from 'preact/compat';
+import { env } from '../../config';
 import * as styles from './package-readme.css';
 
 interface PackageReadmeProps {
-  readme: string;
+  name: string;
+  version: string;
 }
 
 function markdownUrl(value: string) {
@@ -45,16 +48,38 @@ const renderer = {
 
 export default function PackageReadme(props: PackageReadmeProps) {
   const gt = useGT();
+  const { data: readme, isPending, isError } = useQuery({
+    queryKey: ['package-file', props.name, props.version, 'README.md'],
+    queryFn: async ({ signal }): Promise<string> => {
+      const response = await fetch(
+        `${env.apiUrl}/packages/${encodeURIComponent(props.name)}`
+          + `/${encodeURIComponent(props.version)}/file?path=README.md`,
+        { signal }
+      );
+
+      if (response.status === 404) {
+        return '';
+      }
+
+      if (!response.ok) {
+        throw new Error(`GET ${response.url} failed (${response.status})`);
+      }
+
+      return response.text();
+    }
+  });
 
   return (
     <article className={styles.readme} aria-label={gt('Readme')}>
-      {props.readme.trim() && (
+      {isPending && <p role="status"><T>Loading readme…</T></p>}
+      {isError && <p role="alert"><T>Could not load this readme.</T></p>}
+      {readme?.trim() && (
         <Markdown
-          value={props.readme}
+          value={readme}
           renderer={renderer}
         />)
       }
-      {!props.readme.trim() && (
+      {readme !== undefined && !readme.trim() && (
         <p>
           <T>No readme has been provided for this package.</T>
         </p>
