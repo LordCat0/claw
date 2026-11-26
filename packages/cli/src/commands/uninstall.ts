@@ -2,6 +2,7 @@ import { rm } from 'node:fs/promises';
 import chalk from 'chalk';
 import { packageDirectory } from '../config.ts';
 import { getClawFile, writeClawFile } from '../util/claw-file.ts';
+import { getClawLock, writeClawLock } from '../util/claw-lock.ts';
 
 export default async function uninstall (packages: string[]) {
   if (packages.length === 0) {
@@ -21,15 +22,25 @@ export default async function uninstall (packages: string[]) {
   }
 
   const start = Date.now();
+  const lockFile = getClawLock();
   for (const name of packages) {
     await rm(`${packageDirectory}/${name}`, {
       recursive: true
     });
 
     delete dependencies[name];
+    if (lockFile) {
+      delete lockFile.dependencies[name];
+    }
   }
-  await writeClawFile(clawFile);
+  await Promise.all([
+    writeClawFile(clawFile),
+    lockFile && writeClawLock(lockFile)
+  ]);
 
   const elapsed = Date.now() - start;
-  console.log(`Uninstalled ${chalk.greenBright(packages.length)} packages in ${chalk.yellowBright(elapsed + 'ms')}`);
+  console.log(
+    `Uninstalled ${chalk.greenBright(packages.length)} packages in `
+      + chalk.yellowBright(elapsed + 'ms')
+  );
 }
