@@ -1,7 +1,7 @@
 {
-  "name": "cdn",
+  "name": "backend",
+  "private": true,
   "version": "1.0.0",
-  "description": "Package registry and CDN for claw files",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

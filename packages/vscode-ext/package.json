@@ -1,5 +1,6 @@
 {
   "name": "vscode-ext",
+  "private": true,
   "displayName": "Claw",
   "description": "Language support for Claw.",
   "icon": "icon.png",

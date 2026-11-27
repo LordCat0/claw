@@ -1,5 +1,6 @@
 {
   "name": "compiler",
+  "private": true,
   "version": "1.0.0",
   "description": "A programming language that compiles to scratch projects",
   "main": "dist/src/index.js",
