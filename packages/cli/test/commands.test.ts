@@ -107,7 +107,6 @@ test('rejects lock entries that could delete files outside claw_modules', () => 
         version: '1.0.0',
         license: '',
         dependencies: {},
-        resolved: 'https://registry.invalid/package.tgz',
         integrity: 'sha512-YQ=='
       }
     }

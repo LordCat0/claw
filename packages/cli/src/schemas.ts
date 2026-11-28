@@ -13,7 +13,6 @@ const lockedDependencySchema = z.object({
   version: semverSchema,
   license: z.string(),
   dependencies: z.optional(z.record(packageNameSchema, z.string())),
-  resolved: z.url({ protocol: /^https?$/ }),
   integrity: z.string().regex(/^sha512-[A-Za-z0-9+/]+={0,2}$/)
 });
 

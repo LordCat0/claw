@@ -76,7 +76,6 @@ async function resolveDependency(
     version: result.data.version,
     license: result.data.license,
     dependencies: result.data.dependencies,
-    resolved: `${registryURL}${result.data.dist.tarball}`,
     integrity: result.data.dist.integrity
   };
 }
@@ -206,7 +205,10 @@ export function pruneLock(
 }
 
 async function installPackage(name: string, dependency: LockedDependency) {
-  const response = await fetch(dependency.resolved);
+  const response = await fetch(
+    `${getRegistryURL()}/packages/${encodeURIComponent(name)}`
+      + `/${encodeURIComponent(dependency.version)}/download`
+  );
   if (!response.ok) {
     throw new Error(
       `HTTP ${response.status} while fetching package ${name}@${dependency.version}`
