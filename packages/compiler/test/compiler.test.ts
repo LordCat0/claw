@@ -129,6 +129,13 @@ test('loads a custom extension', async () => {
   assert.deepEqual(compiler.extensions, ['fixture']);
   assert.match(compiler.extensionURLs.fixture, /^data:application\/javascript;base64,/);
   assert.ok(Object.values(compiler.root.blocks).some(block => block.opcode === 'fixture_echo'));
+
+  const blocks = Object.values(compiler.root.blocks);
+  const even = blocks.find(block => block.opcode === 'fixture_isEven');
+  assert.deepEqual(even!.inputs.VALUE, [1, [4, '2']]);
+  const accept = blocks.find(block => block.opcode === 'fixture_accept');
+  const boolean = compiler.root.blocks[inputBlockId(accept!.inputs.VALUE)];
+  assert.equal(boolean.opcode, 'operator_not');
 });
 
 test('rejects a broken custom extension', async () => {

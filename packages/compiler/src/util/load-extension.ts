@@ -368,7 +368,7 @@ function bindBlock(
             inputs[index]
           );
         } else {
-          blockInputs[param.name] = type === 'boolean'
+          blockInputs[param.name] = param.type === 'boolean'
             ? compiler.boolean(inputs[index])
             : inputs[index];
         }
