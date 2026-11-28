@@ -53,6 +53,10 @@ class S3Manager {
     });
 
     try {
+      if (content.length > 5 * 1024 * 1024) {
+        throw new Error('Package archive exceeds the size limit of 5 MiB');
+      }
+
       await pipeline(Readable.from(content), createGunzip(), archive);
       const manifest = JSON.parse(files['claw.json']) as Record<string, unknown>;
 

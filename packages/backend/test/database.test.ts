@@ -8,11 +8,13 @@ const body = publishedPackage.parse({
   name: 'claw-tools',
   version: '1.2.0',
   type: 'package',
+  main: 'index.claw',
   files: {
     'claw.json': JSON.stringify({
       name: 'claw-tools',
       version: '1.2.0',
-      type: 'package'
+      type: 'package',
+      main: 'index.claw'
     }),
     'index.claw': 'var value = 1;'
   }

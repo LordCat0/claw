@@ -5,12 +5,21 @@ import { listQuery, packageVersion, publishedPackage, requestedVersion } from '.
 const manifest = {
   name: 'claw-tools',
   version: '1.2.0',
-  type: 'package'
+  type: 'package',
+  main: 'index.claw'
 };
 const files = {
   'claw.json': JSON.stringify(manifest),
   'index.claw': 'var value = 1;'
 };
+
+test('rejects a manifest without a main file', () => {
+  assert.equal(publishedPackage.safeParse({
+    ...manifest,
+    main: undefined,
+    files
+  }).success, false);
+});
 
 test('accepts a nested entry point and a dependency range', () => {
   const body = publishedPackage.parse({

@@ -45,7 +45,7 @@ const publishManifest = z.object({
   version: packageVersion,
   type: z.literal('package'),
   description: text.trim().max(500).default(''),
-  main: clawFilePath.default('index.claw'),
+  main: clawFilePath,
   license: text.trim().max(100).default(''),
   repository: link,
   homepage: link,
