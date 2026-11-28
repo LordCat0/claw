@@ -2711,6 +2711,15 @@ class Compiler extends EventEmitter<CompilerEvents> {
 
     const reset = new Scope();
 
+    if (this.root.isStage) {
+      this.append(reset, {
+        opcode: 'data_deletealloflist',
+        fields: {
+          LIST: ['console', this.consoleList]
+        }
+      });
+    }
+
     for (const list of Object.values(this._lists)) {
       this.append(reset, {
         opcode: 'data_deletealloflist',
