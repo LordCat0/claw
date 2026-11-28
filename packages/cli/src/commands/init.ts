@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
-import { writeFile } from 'node:fs/promises';
-import { basename, resolve } from 'node:path';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { basename, dirname, resolve } from 'node:path';
 import chalk from 'chalk';
 import { packageNameSchema } from '../schemas.ts';
 
@@ -38,11 +38,12 @@ export default async function init(args: string[]) {
     main: source
   };
 
+  await mkdir(dirname(source), { recursive: true });
+  await writeFile(source, defaultClawFile);
   await writeFile(
     'claw.json',
     `${JSON.stringify(manifest, null, 2)}\n`
-  ),
-  await writeFile(source, defaultClawFile)
+  );
 
   console.log(chalk.green(`Created ${name}.`));
 }

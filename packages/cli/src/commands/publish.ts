@@ -59,7 +59,8 @@ async function readPackageFiles(
   const files: Record<string, Buffer> = {};
 
   for (const entry of await readdir(directory, { withFileTypes: true })) {
-    if (entry.isDirectory() && entry.name === 'claw_modules') {
+    if (entry.name.startsWith('.')
+      || ['claw_modules', 'node_modules'].includes(entry.name)) {
       continue;
     }
 

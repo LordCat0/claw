@@ -17,7 +17,9 @@ export default async function uninstall (packages: string[]) {
   }
 
   const dependencies = clawFile.dependencies;
-  const missingPackage = packages.find((name) => !dependencies[name]);
+  const missingPackage = packages.find(
+    name => !Object.hasOwn(dependencies, name)
+  );
   if (missingPackage) {
     throw new Error(`Package '${missingPackage}' is not installed.`);
   }

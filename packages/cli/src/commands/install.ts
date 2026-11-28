@@ -7,10 +7,12 @@ import { pipeline } from 'node:stream/promises';
 import { createGunzip } from 'node:zlib';
 import chalk from 'chalk';
 import { extract } from 'tar-stream';
+import { rcompare, satisfies } from 'semver';
 import { getRegistryURL, packageDirectory } from '../config.ts';
 import {
   packageNameSchema,
-  packageVersionSchema
+  packageVersionSchema,
+  packageVersionsSchema
 } from '../schemas.ts';
 import {
   getClawLock,
@@ -20,14 +22,39 @@ import {
 } from '../util/claw-lock.ts';
 import { getClawFile, writeClawFile } from '../util/claw-file.ts';
 
+const satisfiesAll = (version: string, constraints: string[]) =>
+  constraints.every(specifier =>
+    satisfies(version, specifier === 'latest' ? '*' : specifier));
+
 async function resolveDependency(
   name: string,
-  specifier: string
+  specifier: string,
+  constraints: string[]
 ): Promise<LockedDependency> {
   const registryURL = getRegistryURL();
+  let requested = specifier;
+
+  if (constraints.length > 1) {
+    const response = await fetch(
+      `${registryURL}/packages/${encodeURIComponent(name)}`
+    );
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} while resolving package ${name}`);
+    }
+
+    const metadata = packageVersionsSchema.parse(await response.json());
+    requested = metadata.versions
+      .sort(rcompare)
+      .find(version => satisfiesAll(version, constraints)) || '';
+
+    if (!requested) {
+      throw new Error(`Conflicting versions requested for package ${name}.`);
+    }
+  }
+
   const response = await fetch(
     `${registryURL}/packages/${encodeURIComponent(name)}`
-      + `/${encodeURIComponent(specifier)}`
+      + `/${encodeURIComponent(requested)}`
   );
   if (response.status === 404) {
     throw new Error(`Package ${name}@${specifier} was not found.`);
@@ -59,53 +86,66 @@ async function resolveLock(
   currentLock?: ClawLock,
   refresh: string[] = []
 ): Promise<ClawLock> {
-  const resolved: ClawLock['dependencies'] = {};
+  const resolved: ClawLock['dependencies'] = Object.create(null);
+  const resolving: string[] = [];
 
-  async function addDependency(
-    name: string,
-    specifier: string,
-    direct = false
-  ) {
-    const existing = resolved[name];
-    if (existing) {
-      if (existing.specifier === specifier) {
-        return;
-      }
-
-      const candidate = await resolveDependency(name, specifier);
-      if (candidate.version !== existing.version) {
-        throw new Error(`Conflicting versions requested for package ${name}.`);
-      }
-
-      if (direct) {
-        existing.specifier = specifier;
-      }
+  async function addDependency(name: string) {
+    const reachable = pruneLock(dependencies, {
+      lockfileVersion: 1,
+      dependencies: resolved
+    });
+    const direct = Object.hasOwn(dependencies, name)
+      ? dependencies[name]
+      : undefined;
+    const constraints = [
+      direct,
+      ...Object.values(reachable.dependencies).map(dependency => {
+        const children = dependency.dependencies || {};
+        return Object.hasOwn(children, name) ? children[name] : undefined;
+      })
+    ].filter((value, index, values): value is string =>
+      Boolean(value) && values.indexOf(value) === index
+    );
+    if (!constraints.length) {
       return;
+    }
+
+    const specifier = direct || constraints[0];
+    const existing = resolved[name];
+    if (existing && satisfiesAll(existing.version, constraints)) {
+      existing.specifier = specifier;
+      return;
+    }
+    if (resolving.includes(name)) {
+      throw new Error(`Conflicting versions requested for package ${name}.`);
     }
 
     const locked = currentLock?.dependencies[name];
     const dependency = locked?.specifier === specifier
       && locked.dependencies !== undefined
       && !refresh.includes(name)
+      && satisfiesAll(locked.version, constraints)
       ? locked
-      : await resolveDependency(name, specifier);
+      : await resolveDependency(name, specifier, constraints);
 
     resolved[name] = dependency;
-    for (const [child, childSpecifier] of Object.entries(
+    resolving.push(name);
+    for (const child of Object.keys(
       dependency.dependencies || {}
     )) {
-      await addDependency(child, childSpecifier);
+      await addDependency(child);
     }
+    resolving.pop();
   }
 
-  for (const [name, specifier] of Object.entries(dependencies)) {
-    await addDependency(name, specifier, true);
+  for (const name of Object.keys(dependencies)) {
+    await addDependency(name);
   }
 
-  return {
+  return pruneLock(dependencies, {
     lockfileVersion: 1,
     dependencies: resolved
-  };
+  });
 }
 
 export function lockMatches(
@@ -113,7 +153,7 @@ export function lockMatches(
   lockFile: ClawLock
 ) {
   const pending = Object.keys(dependencies);
-  const checked: Record<string, boolean> = {};
+  const checked: Record<string, boolean> = Object.create(null);
 
   for (const name of pending) {
     const locked = lockFile.dependencies[name];
@@ -144,7 +184,7 @@ export function pruneLock(
 ) {
   const pruned: ClawLock = {
     lockfileVersion: 1,
-    dependencies: {}
+    dependencies: Object.create(null)
   };
   const pending = Object.keys(dependencies);
 

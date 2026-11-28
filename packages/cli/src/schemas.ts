@@ -1,9 +1,9 @@
 import z from 'zod';
-import semverRegex from 'semver-regex';
+import { valid } from 'semver';
 
 const semverSchema = z.string().refine(
-  (value) => semverRegex().exec(value)?.[0] === value,
-  { error: "Invalid semantic version" }
+  (value) => valid(value) === value.split('+')[0],
+  { error: 'Invalid semantic version' }
 );
 export const packageNameSchema = z.string()
   .regex(/^[a-z0-9][a-z0-9_-]*$/);
@@ -19,7 +19,7 @@ const lockedDependencySchema = z.object({
 
 export const lockFileSchema = z.object({
   lockfileVersion: z.literal(1),
-  dependencies: z.record(z.string(), lockedDependencySchema)
+  dependencies: z.record(packageNameSchema, lockedDependencySchema)
 });
 
 export const packageVersionSchema = z.object({
@@ -30,6 +30,10 @@ export const packageVersionSchema = z.object({
     tarball: z.string().startsWith('/packages/'),
     integrity: z.string().regex(/^sha512-[A-Za-z0-9+/]+={0,2}$/)
   })
+});
+
+export const packageVersionsSchema = z.object({
+  versions: z.array(semverSchema)
 });
 
 const baseSchema = z.object({
