@@ -4,7 +4,7 @@ import { Readable } from 'node:stream';
 import { buffer } from 'node:stream/consumers';
 import { pipeline } from 'node:stream/promises';
 import { test } from 'node:test';
-import { createGzip, gunzipSync, gzipSync } from 'node:zlib';
+import { createGzip } from 'node:zlib';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { pack } from 'tar-stream';
 import './env.ts';
@@ -24,8 +24,8 @@ test('round-trips package source through a content-addressed archive', async ({ 
   packageArchive.finalize();
   const archive = await compressed;
   const body = await s3.parsePackage(archive);
-  const padded = Buffer.concat([gunzipSync(archive), Buffer.alloc(8 * 1024 * 1024)]);
-  await assert.rejects(s3.parsePackage(gzipSync(padded)), { status: 400 });
+  const oversized = Buffer.concat([archive, Buffer.alloc(5 * 1024 * 1024)]);
+  await assert.rejects(s3.parsePackage(oversized), { status: 400 });
   const send = mock.method(s3.client, 'send', async (_command: PutObjectCommand | GetObjectCommand) => ({}));
 
   const dist = await s3.uploadPackage(body, archive);
