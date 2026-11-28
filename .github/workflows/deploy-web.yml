@@ -1,4 +1,4 @@
-name: Deploy web
+name: Deploy web and docs
 
 on:
   workflow_dispatch:
@@ -8,6 +8,7 @@ on:
       - '.github/workflows/deploy-web.yml'
       - 'package.json'
       - 'package-lock.json'
+      - 'packages/docs/**'
       - 'packages/shared/**'
       - 'packages/web/**'
 
@@ -46,6 +47,12 @@ jobs:
           VITE_API_URL: ${{ vars.VITE_API_URL }}
           VITE_CLERK_PUBLISHABLE_KEY: ${{ vars.VITE_CLERK_PUBLISHABLE_KEY }}
           VITE_GT_PROJECT_ID: ${{ vars.VITE_GT_PROJECT_ID }}
+      - name: Build docs
+        run: npm run build --workspace docs
+        env:
+          DOCS_URL: ${{ steps.pages.outputs.origin }}
+          DOCS_BASE_URL: ${{ steps.pages.outputs.base_path }}/docs/
+      - run: cp -R packages/docs/build packages/web/dist/docs
       - run: cp packages/web/dist/index.html packages/web/dist/404.html
       - uses: actions/upload-pages-artifact@v5
         with:

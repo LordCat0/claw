@@ -3,8 +3,8 @@ import type * as Preset from "@docusaurus/preset-classic";
 
 const config: Config = {
   title: "Claw",
-  url: "https://example.com",
-  baseUrl: "/docs",
+  url: process.env.DOCS_URL || "https://example.com",
+  baseUrl: process.env.DOCS_BASE_URL || "/docs/",
   presets: [
     [
       "classic",
